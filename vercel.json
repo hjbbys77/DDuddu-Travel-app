@@ -1,0 +1,8 @@
+{
+  "headers": [
+    {
+      "source": "/(.*)\\.ttf",
+      "headers": [{ "key": "Content-Type", "value": "font/truetype" }]
+    }
+  ]
+}
