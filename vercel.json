@@ -1,4 +1,7 @@
 {
+  "rewrites": [
+    { "source": "/", "destination": "/files/index.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)\\.ttf",
