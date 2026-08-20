@@ -300,7 +300,7 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
     <!-- 닉네임 -->
     <div style="margin-bottom:14px;">
       <div style="font-size:12px;color:#888;margin-bottom:6px;font-family:'Uiyeon',sans-serif;letter-spacing:.5px;">닉네임</div>
-      <input id="onboardName" class="fi" style="width:100%;box-sizing:border-box;font-size:16px;padding:13px 16px;border-radius:12px;border:1.5px solid #eee;background:#fafafa;" placeholder="예: 뚜뚜" maxlength="12" oninput="checkStartReady();checkUserExists()"/>
+      <input id="onboardName" class="fi" style="width:100%;box-sizing:border-box;font-size:16px;padding:13px 16px;border-radius:12px;border:1.5px solid #eee;background:#fafafa;" placeholder="예: 뚜뚜" maxlength="12" oninput="checkStartReady();scheduleUserCheck()"/>
     </div>
 
     <!-- 비밀번호 -->
@@ -1155,12 +1155,17 @@ const SUPA_HEADERS = {
   'Content-Type': 'application/json'
 };
 // 계정 존재 여부만 확인 (비밀번호 컬럼은 절대 내려받지 않는다)
+// 통신 실패와 '계정 없음'을 구분해야 한다. 예전에는 둘 다 null이라
+// 서버가 멈춰 있을 때 "새 계정을 만들어요"가 떠서 기존 사용자를 놀라게 했다.
+let _dbLastError = null;
 async function dbGet(name){
   try{
     const res = await fetch(SUPA_URL+'/rest/v1/baljauk_users?name=eq.'+encodeURIComponent(name)+'&limit=1&select=name,my_code', {headers: SUPA_HEADERS});
+    if(!res.ok){ _dbLastError='HTTP '+res.status; return null; }
     const arr = await res.json();
+    _dbLastError = null;
     return (arr&&arr.length>0) ? arr[0] : null;
-  }catch(e){ return null; }
+  }catch(e){ _dbLastError=(e&&e.message)||'network'; return null; }
 }
 // 비밀번호 해시 (SHA-256). https/localhost가 아니면 crypto.subtle이 없어 null 반환 → 평문 폴백
 async function hashPwd(pwd){
@@ -1299,15 +1304,29 @@ function checkStartReady(){
   if(name&&pwd){btn.style.opacity='1';btn.style.pointerEvents='auto';}
   else{btn.style.opacity='0.5';btn.style.pointerEvents='none';}
 }
+// 입력이 멈춘 뒤에만 조회한다 (한글 조합 중 매 글자마다 요청이 나가던 문제)
+let _nameCheckTimer=null, _nameCheckSeq=0;
+function scheduleUserCheck(){
+  if(_nameCheckTimer) clearTimeout(_nameCheckTimer);
+  _nameCheckTimer=setTimeout(checkUserExists, 400);
+}
 async function checkUserExists(){
   const name=document.getElementById('onboardName').value.trim();
   const hint=document.getElementById('onboardUserHint');
-  if(!hint) return;
-  if(!name){hint.textContent='';return;}
-  const row=await dbGet(name);
   const cp=document.getElementById('charPickerWrap');
+  if(!hint) return;
+  const seq=++_nameCheckSeq;
+  if(!name){ hint.textContent=''; if(cp) cp.style.display=''; return; }
+  const row=await dbGet(name);
+  // 이 응답을 기다리는 동안 더 최근 입력이 있었다면 결과를 버린다.
+  // (예전에는 늦게 도착한 이전 글자의 응답이 화면을 덮어썼다)
+  if(seq!==_nameCheckSeq) return;
   if(row){
     hint.textContent='🐾 기존 계정이 있어요 — 비밀번호를 입력해주세요';
+    if(cp) cp.style.display='none';
+  } else if(_dbLastError){
+    // 서버에 닿지 못한 것이지 계정이 없는 게 아니다
+    hint.textContent='⚠️ 서버에 연결할 수 없어요 — 잠시 후 다시 시도해주세요';
     if(cp) cp.style.display='none';
   } else {
     hint.textContent='✨ 새 계정을 만들어요 — 캐릭터도 골라주세요!';
@@ -1324,6 +1343,13 @@ async function startApp(){
   if(btn){ btn.style.opacity='0.6'; btn.textContent='로그인 중...'; btn.style.pointerEvents='none'; }
   try{
     const existing=await dbGet(name);
+    // 서버에 닿지 못했다면 '계정 없음'으로 단정하지 않는다.
+    // 이 상태로 가입을 시도하면 기존 사용자가 혼란스러워진다.
+    if(!existing && _dbLastError){
+      if(errEl)errEl.textContent='서버에 연결할 수 없어요. 잠시 후 다시 시도해주세요';
+      if(btn){ btn.style.opacity='1'; btn.textContent='시작하기'; btn.style.pointerEvents='auto'; }
+      return;
+    }
     if(existing){
       // 기존 유저 로그인 (비밀번호 대조는 서버 필터로 — 응답에 비번이 실려오지 않음)
       const auth=await dbLogin(name,pwd);
@@ -1830,7 +1856,6 @@ async function checkOnboarding(){
   }catch(e){ console.warn('autologin error:', e); }
   document.getElementById('onboarding').style.display='flex';
 }
-document.getElementById('onboardName').addEventListener('input',checkStartReady);
 function applyUserProfile(){
   // 로그인 시 레벨 재계산 (저장된 레벨이 여행 수와 안맞을 수 있음)
   recalcLevelFromTrips();
