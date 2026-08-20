@@ -353,6 +353,7 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
       <img id="petHdrImg" style="width:32px;height:32px;image-rendering:pixelated;"/>
       <span class="pet-level" id="petHdrLv">Lv.1</span>
     </div>
+    <button onclick="showBackupPopup()" title="설정" style="font-size:14px;background:none;border:1px solid var(--pkd);color:var(--pkd);border-radius:6px;padding:3px 7px;cursor:pointer;font-family:'Uiyeon',sans-serif;">⚙️</button>
     <button onclick="logoutUser()" style="font-size:11px;background:none;border:1px solid var(--pkd);color:var(--pkd);border-radius:6px;padding:3px 7px;cursor:pointer;font-family:'Uiyeon',sans-serif;">로그아웃</button>
   </div>
 </div>
@@ -623,6 +624,55 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
   </div>
 </div>
 
+
+<!-- 설정 / 데이터 관리 -->
+<div class="modal-bg" id="backupPopup" style="z-index:600;">
+  <div style="background:#fff;border-radius:16px;padding:22px;max-width:430px;width:100%;border:2px solid var(--pkk);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div style="font-size:20px;color:var(--pkdr);">⚙️ 설정</div>
+      <button class="modal-close" onclick="closeBackupPopup()">✕ 닫기</button>
+    </div>
+
+    <div style="font-size:13px;color:var(--txm);margin-bottom:6px;">📊 내 데이터</div>
+    <div id="diagResult" style="font-size:12px;color:var(--txm);background:var(--pkp);border-radius:8px;padding:10px;line-height:1.7;margin-bottom:8px;">불러오는 중...</div>
+    <button onclick="showDiagnostics()" style="width:100%;padding:8px;margin-bottom:18px;font-size:12px;border:1.5px solid var(--pkd);background:#fff;color:var(--pkd);border-radius:8px;cursor:pointer;font-family:'Uiyeon',sans-serif;">새로고침</button>
+
+    <div style="font-size:13px;color:var(--txm);margin-bottom:6px;">💾 데이터 내보내기</div>
+    <textarea id="exportTextarea" readonly style="width:100%;height:70px;font-size:11px;padding:8px;border:1.5px solid var(--pkl);border-radius:8px;background:var(--pkp);resize:none;font-family:monospace;"></textarea>
+    <button onclick="copyExportData()" style="width:100%;padding:9px;margin:6px 0 18px;font-size:13px;border:none;background:var(--pkd);color:#fff;border-radius:8px;cursor:pointer;font-family:'Uiyeon',sans-serif;">📋 복사하기</button>
+
+    <div style="font-size:13px;color:var(--txm);margin-bottom:6px;">📥 데이터 가져오기</div>
+    <textarea id="importTextarea" placeholder="내보낸 데이터를 붙여넣으세요" style="width:100%;height:70px;font-size:11px;padding:8px;border:1.5px solid var(--pkl);border-radius:8px;background:#fff;resize:none;font-family:monospace;"></textarea>
+    <button onclick="doImportData()" style="width:100%;padding:9px;margin:6px 0 18px;font-size:13px;border:1.5px solid var(--pkd);background:#fff;color:var(--pkd);border-radius:8px;cursor:pointer;font-family:'Uiyeon',sans-serif;">복원하기</button>
+
+    <div style="font-size:13px;color:var(--txm);margin-bottom:6px;">🔧 이전 데이터 복구</div>
+    <div style="font-size:11px;color:var(--txl);margin-bottom:6px;line-height:1.6;">예전 버전에서 이 기기에 저장된 여행이 있다면 합쳐줍니다.</div>
+    <button onclick="recoverFromLocalStorage()" style="width:100%;padding:9px;margin-bottom:18px;font-size:13px;border:1.5px solid var(--pkd);background:#fff;color:var(--pkd);border-radius:8px;cursor:pointer;font-family:'Uiyeon',sans-serif;">이 기기에서 찾아보기</button>
+
+    <div style="font-size:13px;color:var(--txm);margin-bottom:6px;">📄 약관</div>
+    <div style="display:flex;gap:8px;margin-bottom:18px;">
+      <button onclick="showPolicy('privacy')" style="flex:1;padding:9px;font-size:12px;border:1.5px solid var(--pkl);background:#fff;color:var(--txm);border-radius:8px;cursor:pointer;font-family:'Uiyeon',sans-serif;">개인정보처리방침</button>
+      <button onclick="showPolicy('terms')" style="flex:1;padding:9px;font-size:12px;border:1.5px solid var(--pkl);background:#fff;color:var(--txm);border-radius:8px;cursor:pointer;font-family:'Uiyeon',sans-serif;">이용약관</button>
+    </div>
+
+    <div style="border-top:2px solid #ffe4ec;padding-top:14px;">
+      <div style="font-size:13px;color:#c0446a;margin-bottom:6px;">⚠️ 계정 삭제</div>
+      <div style="font-size:11px;color:var(--txl);margin-bottom:8px;line-height:1.6;">계정과 모든 여행 기록이 즉시 삭제되며 복구할 수 없습니다.</div>
+      <button onclick="deleteAccount()" style="width:100%;padding:10px;font-size:13px;border:1.5px solid #c0446a;background:#fff;color:#c0446a;border-radius:8px;cursor:pointer;font-family:'Uiyeon',sans-serif;">계정 삭제하기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 약관 본문 -->
+<div class="modal-bg" id="policyPopup" style="z-index:700;">
+  <div style="background:#fff;border-radius:16px;padding:22px;max-width:430px;width:100%;border:2px solid var(--pkk);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-size:18px;color:var(--pkdr);" id="policyTitle">약관</div>
+      <button class="modal-close" onclick="closePolicy()">✕ 닫기</button>
+    </div>
+    <div id="policyBody" style="font-size:12px;color:var(--tx);line-height:1.85;max-height:60vh;overflow-y:auto;"></div>
+  </div>
+</div>
 <div class="popup-bg" id="popBg">
   <div class="popup pbox">
     <span class="popup-star" id="popStar">⭐</span>
@@ -1135,11 +1185,25 @@ async function dbLogin(name, pwd){
   const h = await hashPwd(pwd);
   if(h){
     const row = await dbFindByCred(name, h);
-    if(row) return {row: row, cred: h};
+    // matched = DB에 실제로 저장돼 있는 값, cred = 앞으로 저장할 값
+    if(row) return {row: row, cred: h, matched: h};
   }
   const legacy = await dbFindByCred(name, pwd);
-  if(legacy) return {row: legacy, cred: h || pwd};
+  if(legacy) return {row: legacy, cred: h || pwd, matched: pwd};
   return null;
+}
+// 계정 삭제 (본인 비밀번호가 일치하는 행만 지워진다)
+async function dbDeleteAccount(name, matchedCred){
+  try{
+    const res = await fetch(SUPA_URL+'/rest/v1/baljauk_users?name=eq.'+encodeURIComponent(name)+'&password=eq.'+encodeURIComponent(matchedCred), {
+      method: 'DELETE',
+      headers: Object.assign({}, SUPA_HEADERS, {'Prefer': 'return=representation'})
+    });
+    if(!res.ok) return {ok:false, status:res.status, deleted:0};
+    // RLS가 DELETE를 막으면 200 + 빈 배열이 오므로 실제 삭제 건수를 반드시 확인한다
+    const arr = await res.json().catch(function(){ return []; });
+    return {ok:true, status:res.status, deleted: Array.isArray(arr) ? arr.length : 0};
+  }catch(e){ return {ok:false, status:0, deleted:0}; }
 }
 // 저장용 상태 복사본 — 비밀번호(_pwd)는 공개 data 컬럼에 절대 넣지 않는다
 function sanitizeState(state){
@@ -1331,6 +1395,122 @@ async function startApp(){
   setTimeout(function(){ refreshMapColors(); }, 100);
 }
 
+// ===== 약관 본문 =====
+// [확인필요] 대괄호 항목은 실제 값으로 채워야 합니다.
+const POLICY_UPDATED = '2026-08-20';
+const POLICY_OWNER   = '[운영자명]';
+const POLICY_EMAIL   = '[문의 이메일]';
+
+const POLICY_PRIVACY = `
+<p style="color:#c0446a;background:#fff0f5;padding:8px;border-radius:6px;">시행일: ` + POLICY_UPDATED + `</p>
+<p>뚜래블(이하 "서비스")은 이용자의 개인정보를 중요하게 생각하며, 개인정보 보호법 등 관련 법령을 준수합니다.</p>
+
+<p><b>1. 수집하는 개인정보 항목</b><br>
+· 필수: 닉네임, 비밀번호(암호화 저장)<br>
+· 서비스 이용 중 생성: 여행 기록(제목·날짜·방문지역·일정·메모), 첨부 사진, 친구 코드, 친구 목록<br>
+· 사진에서 추출: 촬영일시, 위치정보(GPS 좌표) — 사진으로 여행을 자동 기록할 때만 추출합니다<br>
+· 자동 수집: 접속 기록, 기기 정보</p>
+
+<p><b>2. 수집·이용 목적</b><br>
+· 회원 식별 및 로그인<br>
+· 여행 기록 저장·조회, 지도 표시, 미션·캐릭터 기능 제공<br>
+· 친구 코드를 통한 여행 공유<br>
+· 서비스 개선 및 오류 대응</p>
+
+<p><b>3. 보유 및 이용기간</b><br>
+회원 탈퇴 시 <b>즉시 파기</b>합니다. 설정 &gt; 계정 삭제에서 직접 삭제할 수 있으며, 삭제된 데이터는 복구할 수 없습니다.
+관련 법령에 따라 보존이 필요한 경우 해당 기간 동안 보관합니다.</p>
+
+<p><b>4. 제3자 제공</b><br>
+이용자의 개인정보를 제3자에게 제공하지 않습니다. 다만 이용자가 친구 코드를 공유한 경우, 해당 친구에게 닉네임과 여행 기록이 표시됩니다.</p>
+
+<p><b>5. 처리 위탁 및 국외 이전</b><br>
+· Supabase Inc. — 데이터 저장·관리 (서버 소재지: [리전 확인 필요])<br>
+· Vercel Inc. — 서비스 호스팅 (미국)<br>
+· OpenStreetMap Foundation — 사진 위치정보를 지역명으로 변환 (좌표만 전송, 영국/EU)<br>
+위 업체는 위탁받은 업무 수행 목적 외로 개인정보를 이용하지 않습니다.</p>
+
+<p><b>6. 파기 절차</b><br>
+보유기간이 지나거나 처리 목적이 달성된 개인정보는 지체 없이 파기합니다. 전자적 파일은 복구할 수 없는 방법으로 삭제합니다.</p>
+
+<p><b>7. 이용자의 권리</b><br>
+이용자는 언제든지 개인정보 열람·정정·삭제·처리정지를 요구할 수 있습니다.<br>
+· 열람·정정: 앱 내에서 직접 수정<br>
+· 삭제: 설정 &gt; 계정 삭제<br>
+· 그 밖의 요청: ` + POLICY_EMAIL + `</p>
+
+<p><b>8. 안전성 확보 조치</b><br>
+· 비밀번호는 복호화할 수 없는 방식으로 암호화하여 저장합니다<br>
+· 전송 구간은 HTTPS로 암호화합니다<br>
+· 개인정보 취급자를 최소한으로 제한합니다</p>
+
+<p><b>9. 만 14세 미만 아동</b><br>
+만 14세 미만 아동은 법정대리인의 동의 없이 회원가입할 수 없습니다.</p>
+
+<p><b>10. 개인정보 보호책임자</b><br>
+· 책임자: ` + POLICY_OWNER + `<br>
+· 문의: ` + POLICY_EMAIL + `<br>
+개인정보 침해에 대한 신고·상담은 개인정보침해신고센터(privacy.kisa.or.kr, 국번없이 118)에 문의하실 수 있습니다.</p>
+
+<p><b>11. 방침 변경</b><br>
+이 방침이 변경되는 경우 시행일 최소 7일 전에 앱 내 공지합니다.</p>
+`;
+
+const POLICY_TERMS = `
+<p style="color:#c0446a;background:#fff0f5;padding:8px;border-radius:6px;">시행일: ` + POLICY_UPDATED + `</p>
+
+<p><b>제1조 (목적)</b><br>
+이 약관은 뚜래블(이하 "서비스")의 이용 조건과 절차, 이용자와 운영자의 권리·의무를 정합니다.</p>
+
+<p><b>제2조 (약관의 효력)</b><br>
+이 약관은 서비스 내에 게시함으로써 효력이 발생합니다. 운영자는 관련 법령을 위반하지 않는 범위에서 약관을 변경할 수 있으며, 변경 시 앱 내에 공지합니다.</p>
+
+<p><b>제3조 (회원가입)</b><br>
+① 닉네임과 비밀번호를 입력하여 가입합니다.<br>
+② 닉네임은 <b>먼저 등록한 이용자에게 우선권</b>이 있으며, 이미 사용 중인 닉네임은 사용할 수 없습니다.<br>
+③ 타인의 명의를 도용하거나 허위 정보를 기재한 경우 이용이 제한될 수 있습니다.</p>
+
+<p><b>제4조 (계정 관리)</b><br>
+① 비밀번호 관리 책임은 이용자에게 있습니다.<br>
+② <b>비밀번호를 분실한 경우 계정을 복구할 수 없습니다.</b> 별도의 본인확인 수단(이메일·전화번호)을 수집하지 않기 때문이며, 중요한 기록은 설정 &gt; 데이터 내보내기로 백업해 두시기 바랍니다.<br>
+③ 계정을 타인과 공유하여 발생한 문제에 대해 운영자는 책임지지 않습니다.</p>
+
+<p><b>제5조 (서비스의 내용)</b><br>
+여행 기록 저장, 지도 시각화, 미션, 캐릭터 육성, 친구 간 여행 공유 기능을 제공합니다. 운영자는 서비스 내용을 변경하거나 일부를 중단할 수 있습니다.</p>
+
+<p><b>제6조 (이용자의 의무)</b><br>
+이용자는 다음 행위를 해서는 안 됩니다.<br>
+· 타인의 개인정보를 무단으로 수집·게시하는 행위<br>
+· 서비스의 정상적인 운영을 방해하는 행위<br>
+· 불법적이거나 타인의 권리를 침해하는 콘텐츠를 등록하는 행위</p>
+
+<p><b>제7조 (콘텐츠의 권리)</b><br>
+① 이용자가 등록한 여행 기록과 사진의 권리는 이용자에게 있습니다.<br>
+② 운영자는 서비스 제공에 필요한 범위에서만 이를 저장·표시합니다.<br>
+③ 이용자가 친구에게 공유한 여행은 해당 친구가 열람·저장할 수 있습니다.</p>
+
+<p><b>제8조 (광고 및 제휴 링크)</b><br>
+① 서비스 내에 광고 또는 제휴 상품 링크가 표시될 수 있습니다.<br>
+② 제휴 링크를 통한 구매 시 운영자가 일정액의 수수료를 받을 수 있으며, 해당 위치에 이를 표시합니다.<br>
+③ 제휴사 상품의 거래에 관한 책임은 해당 판매자에게 있습니다.</p>
+
+<p><b>제9조 (서비스의 중단)</b><br>
+운영자는 시스템 점검·장애, 천재지변 등의 사유로 서비스를 일시 중단할 수 있으며, 사전 공지가 어려운 경우 사후에 공지합니다.</p>
+
+<p><b>제10조 (면책)</b><br>
+① 운영자는 무료로 제공되는 서비스와 관련하여 고의 또는 중대한 과실이 없는 한 책임을 지지 않습니다.<br>
+② 이용자가 서비스에 등록한 정보의 정확성에 대한 책임은 이용자에게 있습니다.<br>
+③ 이용자 간 또는 이용자와 제3자 간 분쟁에 운영자는 개입하지 않습니다.</p>
+
+<p><b>제11조 (계약 해지)</b><br>
+이용자는 설정 &gt; 계정 삭제를 통해 언제든지 이용계약을 해지할 수 있으며, 해지 시 모든 데이터가 즉시 삭제됩니다.</p>
+
+<p><b>제12조 (분쟁 해결)</b><br>
+이 약관은 대한민국 법률에 따르며, 분쟁이 발생한 경우 관련 법령이 정하는 절차에 따릅니다.</p>
+
+<p>문의: ` + POLICY_EMAIL + `</p>
+`;
+
 // ===== 데이터 백업/복원 =====
 function showBackupPopup(){
   const popup = document.getElementById('backupPopup');
@@ -1338,7 +1518,7 @@ function showBackupPopup(){
   // 내보내기 데이터 채우기
   const textarea = document.getElementById('exportTextarea');
   if(textarea && S.name){
-    textarea.value = JSON.stringify(S);
+    textarea.value = JSON.stringify(sanitizeState(S));   // 비밀번호는 내보내지 않는다
   }
   document.getElementById('importTextarea').value = '';
   popup.style.display = 'flex';
@@ -1371,6 +1551,35 @@ function showDiagnostics(){
       '💾 로컬 데이터: ' + localInfo;
   }
 }
+// ===== 계정 삭제 (App Store 심사 필수 요건) =====
+async function deleteAccount(){
+  if(!S.name){ alert('로그인 후 이용해주세요.'); return; }
+  const tripCount=(S.trips||[]).length;
+  const pwd=prompt('계정을 삭제하려면 비밀번호를 입력해주세요.\n\n여행 기록 '+tripCount+'건과 모든 데이터가 즉시 삭제되며,\n되돌릴 수 없습니다.');
+  if(pwd===null) return;
+  if(!pwd.trim()){ alert('비밀번호를 입력해주세요.'); return; }
+  const auth=await dbLogin(S.name, pwd);
+  if(!auth){ alert('비밀번호가 일치하지 않아요 🔒'); return; }
+  if(!confirm('정말 계정을 삭제할까요?\n\n· 여행 기록 '+tripCount+'건\n· 지도 방문 기록\n· 친구 목록\n\n모두 영구 삭제되며 복구할 수 없습니다.')) return;
+  const res=await dbDeleteAccount(S.name, auth.matched);
+  if(!res.ok){ alert('삭제 중 오류가 발생했어요 (status: '+res.status+')\n잠시 후 다시 시도해주세요.'); return; }
+  if(res.deleted===0){ alert('계정을 삭제하지 못했어요.\n권한 설정 문제일 수 있으니 문의해주세요.'); return; }
+  localStorage.removeItem('baljauk_autologin');
+  S=loadState(); currentUserKey=null;
+  alert('계정이 삭제되었습니다.\n그동안 함께해서 즐거웠어요 🐾');
+  location.reload();
+}
+// ===== 약관 / 개인정보처리방침 =====
+function showPolicy(which){
+  const el=document.getElementById('policyBody');
+  const ttl=document.getElementById('policyTitle');
+  if(!el||!ttl) return;
+  ttl.textContent = which==='privacy' ? '개인정보처리방침' : '서비스 이용약관';
+  el.innerHTML = which==='privacy' ? POLICY_PRIVACY : POLICY_TERMS;
+  document.getElementById('policyPopup').style.display='flex';
+}
+function closePolicy(){ document.getElementById('policyPopup').style.display='none'; }
+
 function closeBackupPopup(){
   const popup = document.getElementById('backupPopup');
   if(popup) popup.style.display = 'none';
@@ -1499,8 +1708,7 @@ async function doImportData(){
     if(!S.name){ alert('로그인 후 복원해주세요.'); return; }
     if(!confirm('현재 데이터를 덮어쓰고 복원할까요?')) return;
     const pwd = S._pwd || parsed._pwd || '';
-    const dataToSave = Object.assign({}, parsed);
-    dataToSave._pwd = pwd;
+    const dataToSave = sanitizeState(parsed);   // 공개 data 컬럼에 비밀번호를 넣지 않는다
     dataToSave.name = S.name;  // 항상 현재 로그인 유저 이름 사용
     const name = S.name;
     const payload = { name: name, password: pwd, my_code: S.myCode||dataToSave.myCode||'', data: dataToSave, updated_at: new Date().toISOString() };
