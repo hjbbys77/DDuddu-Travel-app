@@ -1147,25 +1147,66 @@ const ACTION_LABEL = {meal:'밥 🍚', walk:'산책 🦮', play:'공놀이 🎾'
 const MAX_LOVE = 100;  // 애정도 최대치
 
 // ===== SUPABASE CONFIG (fetch 방식 - CDN 불필요) =====
-const SUPA_URL = 'https://ptcuejfmsopyafngreea.supabase.co';
-const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB0Y3VlamZtc29weWFmbmdyZWVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MjUwOTksImV4cCI6MjA5NDQwMTA5OX0.QLbFE2VVy_C7Exs2boHmJrv2AHhmuTDUcNQTFNWwwIc';
+const SUPA_URL = 'https://wyxpuhixeiuojetzkgls.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5eHB1aGl4ZWl1b2pldHprZ2xzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcxOTkyNTEsImV4cCI6MjEwMjc3NTI1MX0.uZP59S3fO454RL5PZhdHWf2u-1fodzjPJB8HNcq-TMM';
 const SUPA_HEADERS = {
   'apikey': SUPA_KEY,
   'Authorization': 'Bearer ' + SUPA_KEY,
   'Content-Type': 'application/json'
 };
-// 계정 존재 여부만 확인 (비밀번호 컬럼은 절대 내려받지 않는다)
-// 통신 실패와 '계정 없음'을 구분해야 한다. 예전에는 둘 다 null이라
-// 서버가 멈춰 있을 때 "새 계정을 만들어요"가 떠서 기존 사용자를 놀라게 했다.
+
+// ===== DB 접근 =====
+// 테이블에는 직접 접근하지 않는다. anon 키로는 아래 6개 함수만 호출할 수 있고,
+// 비밀번호 대조는 전부 서버(SECURITY DEFINER 함수) 안에서 일어난다.
+// 통신 실패와 '해당 없음'을 구분하기 위해 _dbLastError를 함께 관리한다.
 let _dbLastError = null;
-async function dbGet(name){
+async function rpc(fn, args){
   try{
-    const res = await fetch(SUPA_URL+'/rest/v1/baljauk_users?name=eq.'+encodeURIComponent(name)+'&limit=1&select=name,my_code', {headers: SUPA_HEADERS});
-    if(!res.ok){ _dbLastError='HTTP '+res.status; return null; }
-    const arr = await res.json();
+    const res = await fetch(SUPA_URL+'/rest/v1/rpc/'+fn, {
+      method: 'POST', headers: SUPA_HEADERS, body: JSON.stringify(args||{})
+    });
+    if(!res.ok){
+      const t = await res.text().catch(function(){ return ''; });
+      _dbLastError = 'HTTP '+res.status+' '+t.slice(0,140);
+      console.warn('rpc '+fn+' failed:', _dbLastError);
+      return {ok:false, data:null, status:res.status};
+    }
     _dbLastError = null;
-    return (arr&&arr.length>0) ? arr[0] : null;
-  }catch(e){ _dbLastError=(e&&e.message)||'network'; return null; }
+    const d = await res.json().catch(function(){ return null; });
+    return {ok:true, data:d, status:res.status};
+  }catch(e){
+    _dbLastError = (e&&e.message)||'network';
+    return {ok:false, data:null, status:0};
+  }
+}
+
+// 닉네임 사용 여부만 확인 (비밀번호도 데이터도 내려오지 않는다)
+async function dbGet(name){
+  const r = await rpc('app_name_taken', {p_name:name});
+  if(!r.ok) return null;
+  return r.data===true ? {name:name} : null;
+}
+// 닉네임+자격증명이 모두 맞을 때만 데이터를 돌려준다
+async function dbFindByCred(name, cred){
+  const r = await rpc('app_login', {p_name:name, p_cred:cred});
+  if(!r.ok || !Array.isArray(r.data) || r.data.length===0) return null;
+  return r.data[0];
+}
+// 친구 코드로 조회
+async function dbGetByCode(code){
+  const r = await rpc('app_find_friend', {p_code:code});
+  if(!r.ok || !Array.isArray(r.data) || r.data.length===0) return null;
+  return r.data[0];
+}
+// 회원가입 (닉네임이 이미 있으면 duplicate)
+async function dbSignup(name, cred, code, data){
+  const r = await rpc('app_signup', {p_name:name, p_cred:cred, p_code:code, p_data:data});
+  return {ok: r.ok && r.data===true, duplicate: r.ok && r.data===false, status: r.status};
+}
+// 저장 (본인 자격증명이 맞을 때만). newCred를 주면 비밀번호를 그 값으로 승격한다.
+async function dbSave(name, cred, newCred, code, data){
+  const r = await rpc('app_save', {p_name:name, p_cred:cred, p_new_cred:newCred||'', p_code:code||'', p_data:data});
+  return {ok: r.ok && r.data===true, status: r.status, error: _dbLastError||'', mismatched: r.ok && r.data===false};
 }
 // 비밀번호 해시 (SHA-256). https/localhost가 아니면 crypto.subtle이 없어 null 반환 → 평문 폴백
 async function hashPwd(pwd){
@@ -1177,14 +1218,6 @@ async function hashPwd(pwd){
 }
 // 실제로 저장/대조에 쓰는 자격증명 값
 async function credFor(pwd){ return (await hashPwd(pwd)) || pwd; }
-// 닉네임+자격증명이 모두 일치할 때만 행을 돌려준다 (비밀번호는 서버 필터로만 쓰이고 응답에 없음)
-async function dbFindByCred(name, cred){
-  try{
-    const res = await fetch(SUPA_URL+'/rest/v1/baljauk_users?name=eq.'+encodeURIComponent(name)+'&password=eq.'+encodeURIComponent(cred)+'&limit=1&select=name,my_code,data', {headers: SUPA_HEADERS});
-    const arr = await res.json();
-    return (arr&&arr.length>0) ? arr[0] : null;
-  }catch(e){ return null; }
-}
 // 로그인: 해시로 먼저 대조하고, 안 되면 예전 평문 계정으로 대조 (다음 저장 때 해시로 자동 승격)
 async function dbLogin(name, pwd){
   const h = await hashPwd(pwd);
@@ -1197,58 +1230,18 @@ async function dbLogin(name, pwd){
   if(legacy) return {row: legacy, cred: h || pwd, matched: pwd};
   return null;
 }
-// 계정 삭제 (본인 비밀번호가 일치하는 행만 지워진다)
-async function dbDeleteAccount(name, matchedCred){
-  try{
-    const res = await fetch(SUPA_URL+'/rest/v1/baljauk_users?name=eq.'+encodeURIComponent(name)+'&password=eq.'+encodeURIComponent(matchedCred), {
-      method: 'DELETE',
-      headers: Object.assign({}, SUPA_HEADERS, {'Prefer': 'return=representation'})
-    });
-    if(!res.ok) return {ok:false, status:res.status, deleted:0};
-    // RLS가 DELETE를 막으면 200 + 빈 배열이 오므로 실제 삭제 건수를 반드시 확인한다
-    const arr = await res.json().catch(function(){ return []; });
-    return {ok:true, status:res.status, deleted: Array.isArray(arr) ? arr.length : 0};
-  }catch(e){ return {ok:false, status:0, deleted:0}; }
-}
-// 저장용 상태 복사본 — 비밀번호(_pwd)는 공개 data 컬럼에 절대 넣지 않는다
+// 저장용 상태 복사본 — 비밀번호는 공개 data 컬럼에 절대 넣지 않는다
 function sanitizeState(state){
   const copy = Object.assign({}, state);
   delete copy._pwd;
+  delete copy._pwdNext;
   return copy;
 }
-async function dbGetByCode(code){
-  try{
-    const res = await fetch(SUPA_URL+'/rest/v1/baljauk_users?my_code=eq.'+encodeURIComponent(code)+'&limit=1&select=name,my_code,data', {headers: SUPA_HEADERS});
-    const arr = await res.json();
-    return (arr&&arr.length>0) ? arr[0] : null;
-  }catch(e){ return null; }
+// 계정 삭제
+async function dbDeleteAccount(name, matchedCred){
+  const r = await rpc('app_delete_account', {p_name:name, p_cred:matchedCred});
+  return {ok: r.ok, status: r.status, deleted: (r.ok && r.data===true) ? 1 : 0};
 }
-async function dbUpsert(row){
-  try{
-    const res = await fetch(SUPA_URL+'/rest/v1/baljauk_users?on_conflict=name', {
-      method: 'POST',
-      headers: Object.assign({}, SUPA_HEADERS, {'Prefer': 'resolution=merge-duplicates,return=minimal'}),
-      body: JSON.stringify(row)
-    });
-    if(!res.ok){
-      const errText = await res.text().catch(function(){ return ''; });
-      console.warn('dbUpsert failed:', res.status, errText);
-      return {ok: false, status: res.status, error: errText};
-    }
-    return {ok: true, status: res.status, error: ''};
-  }catch(e){ console.warn('dbUpsert error:', e); return {ok: false, status: 0, error: e.message}; }
-}
-async function dbInsert(row){
-  try{
-    const res = await fetch(SUPA_URL+'/rest/v1/baljauk_users', {
-      method: 'POST',
-      headers: Object.assign({}, SUPA_HEADERS, {'Prefer': 'return=minimal'}),
-      body: JSON.stringify(row)
-    });
-    return {ok: res.ok, status: res.status};
-  }catch(e){ return {ok:false, status:0}; }
-}
-
 let currentUserKey = null;
 function loadState(){
   // Supabase로 마이그레이션 - 기본 상태 반환 (실제 데이터는 checkOnboarding에서 비동기로 로드)
@@ -1364,7 +1357,8 @@ async function startApp(){
       }
       const row=auth.row;
       S=row.data||{};
-      S._pwd=auth.cred;
+      S._pwd=auth.matched;      // DB에 지금 들어있는 값 (저장할 때 대조용)
+      S._pwdNext=auth.cred;     // 앞으로 저장할 값 (평문→해시 승격)
       if(!S.myCode) S.myCode=row.my_code||genCode(name);
       if(!S.friends) S.friends=[];
       if(!S.savedTrips) S.savedTrips=[];
@@ -1386,15 +1380,14 @@ async function startApp(){
         if(btn){ btn.style.opacity='1'; btn.textContent='시작하기'; btn.style.pointerEvents='auto'; }
         return;
       }
-      S.name=name; S.pet=selectedPet; S._pwd=await credFor(pwd);
+      S.name=name; S.pet=selectedPet; S._pwd=await credFor(pwd); S._pwdNext=S._pwd;
       S.myCode=genCode(name);
       S.friends=[];
       S.savedTrips=[];
       currentUserKey=name;
-      const insRes=await dbInsert({name:name,password:S._pwd,my_code:S.myCode,data:sanitizeState(S)});
+      const insRes=await dbSignup(name, S._pwd, S.myCode, sanitizeState(S));
       if(!insRes.ok){
-        // 409 = 같은 닉네임이 방금 먼저 만들어진 경우 (name 컬럼 UNIQUE 제약)
-        if(errEl)errEl.textContent=insRes.status===409
+        if(errEl)errEl.textContent=insRes.duplicate
           ? '이미 사용 중인 닉네임이에요. 다른 닉네임을 써주세요'
           : '계정 생성 오류 (status:'+insRes.status+')';
         if(btn){ btn.style.opacity='1'; btn.textContent='시작하기'; btn.style.pointerEvents='auto'; }
@@ -1709,9 +1702,8 @@ async function recoverFromLocalStorage(){
         if(!dataToSave.visitCounts[iso]) dataToSave.visitCounts[iso]=1;
       }
     });
-    dataToSave._pwd = pwd;
     if(!dataToSave.name) dataToSave.name = name;
-    const payload = { name: name, password: pwd, my_code: S.myCode||parsed.myCode||'', data: dataToSave, updated_at: new Date().toISOString() };
+    const payload = { my_code: S.myCode||parsed.myCode||'', data: sanitizeState(dataToSave) };
     // Check size - strip photos if too large
     let payloadStr = JSON.stringify(payload);
     if(payloadStr.length > 3 * 1024 * 1024){
@@ -1721,39 +1713,32 @@ async function recoverFromLocalStorage(){
       stripped.trips = (stripped.trips||[]).map(function(t){ return Object.assign({}, t, {photos:[]}); });
       payload.data = stripped;
     }
-    // Direct upsert with error checking
-    const res = await fetch(SUPA_URL+'/rest/v1/baljauk_users?on_conflict=name', {
-      method: 'POST',
-      headers: Object.assign({}, SUPA_HEADERS, {'Prefer': 'resolution=merge-duplicates,return=minimal'}),
-      body: JSON.stringify(payload)
-    });
+    const saveRes = await dbSave(name, S._pwd||'', '', payload.my_code, payload.data);
+    const res = {ok: saveRes.ok, status: saveRes.status};
     if(!res.ok){
-      const errText = await res.text().catch(function(){ return ''; });
-      if(res.status === 413 || res.status === 400){
-        if(confirm('저장 실패 (오류 ' + res.status + ')\n사진을 제외하고 다시 시도할까요?')){
+      // 용량 문제로 보이면 사진을 빼고 한 번 더 시도한다
+      if(res.status === 413 || res.status === 400 || res.status === 0){
+        if(confirm('저장에 실패했어요 (오류 ' + res.status + ')\n사진을 제외하고 다시 시도할까요?')){
           const stripped = Object.assign({}, payload.data);
           stripped.trips = (stripped.trips||[]).map(function(t){ return Object.assign({}, t, {photos:[]}); });
           payload.data = stripped;
-          const res2 = await fetch(SUPA_URL+'/rest/v1/baljauk_users?on_conflict=name', {
-            method: 'POST',
-            headers: Object.assign({}, SUPA_HEADERS, {'Prefer': 'resolution=merge-duplicates,return=minimal'}),
-            body: JSON.stringify(payload)
-          });
-          if(!res2.ok){
-            const e2 = await res2.text().catch(function(){ return ''; });
-            alert('복원 실패\n오류: ' + res2.status + ' ' + e2.substring(0,200));
+          const retry = await dbSave(name, S._pwd||'', '', payload.my_code, payload.data);
+          if(!retry.ok){
+            alert('복원 실패\n오류: ' + retry.status + ' ' + (retry.error||''));
             return;
           }
         } else { return; }
       } else {
-        alert('복원 실패\n오류: ' + res.status + ' ' + errText.substring(0,200));
+        alert('복원 실패\n오류: ' + res.status + ' ' + (saveRes.error||''));
         return;
       }
     }
     // Update in-memory state and reload
     S = dataToSave;
+    S._pwd = pwd; S._pwdNext = pwd;
     currentUserKey = name;
-    localStorage.setItem('baljauk_autologin', JSON.stringify({name: name, pwd: pwd}));
+    // 평문 비밀번호가 아니라 자격증명(해시)만 남긴다
+    localStorage.setItem('baljauk_autologin', JSON.stringify({name: name, cred: pwd}));
     alert('✅ 복원 완료!\n새로 추가된 여행: ' + addedCount + '개\n총 여행: ' + totalCount + '개\n\n앱을 새로 불러올게요.');
     closeBackupPopup();
     location.reload();
@@ -1771,7 +1756,7 @@ async function doImportData(){
     const dataToSave = sanitizeState(parsed);   // 공개 data 컬럼에 비밀번호를 넣지 않는다
     dataToSave.name = S.name;  // 항상 현재 로그인 유저 이름 사용
     const name = S.name;
-    const payload = { name: name, password: pwd, my_code: S.myCode||dataToSave.myCode||'', data: dataToSave, updated_at: new Date().toISOString() };
+    const payload = { my_code: S.myCode||dataToSave.myCode||'', data: sanitizeState(dataToSave) };
     // Strip photos if too large
     let payloadStr = JSON.stringify(payload);
     if(payloadStr.length > 3 * 1024 * 1024){
@@ -1781,14 +1766,10 @@ async function doImportData(){
       stripped.trips = (stripped.trips||[]).map(function(t){ return Object.assign({}, t, {photos:[]}); });
       payload.data = stripped;
     }
-    const res = await fetch(SUPA_URL+'/rest/v1/baljauk_users?on_conflict=name', {
-      method: 'POST',
-      headers: Object.assign({}, SUPA_HEADERS, {'Prefer': 'resolution=merge-duplicates,return=minimal'}),
-      body: JSON.stringify(payload)
-    });
+    const saveRes = await dbSave(name, S._pwd||'', '', payload.my_code, payload.data);
+    const res = {ok: saveRes.ok, status: saveRes.status};
     if(!res.ok){
-      const errText = await res.text().catch(function(){ return ''; });
-      alert('저장 실패: ' + res.status + '\n' + errText.substring(0,200));
+      alert('저장 실패: ' + saveRes.status + '\n' + (saveRes.error||''));
       return;
     }
     alert('✅ 복원 완료! 앱을 새로 불러올게요.');
@@ -1821,18 +1802,20 @@ async function checkOnboarding(){
       const plain=saved.pwd||null;            // 구버전(평문 저장) 호환
       const cred=saved.cred||plain;
       if(name&&cred){
-        let row=null, useCred=cred;
+        let row=null, useCred=cred, matchedCred=cred;
         if(plain){
           const h=await hashPwd(plain);
-          if(h){ row=await dbFindByCred(name,h); if(row) useCred=h; }
-          if(!row){ row=await dbFindByCred(name,plain); if(row) useCred=h||plain; }
+          if(h){ row=await dbFindByCred(name,h); if(row){ useCred=h; matchedCred=h; } }
+          if(!row){ row=await dbFindByCred(name,plain); if(row){ useCred=h||plain; matchedCred=plain; } }
         } else {
           row=await dbFindByCred(name,cred);
+          matchedCred=cred;
         }
         if(row){
-          localStorage.setItem('baljauk_autologin',JSON.stringify({name:name,cred:useCred}));
           S=row.data||{};
-          S._pwd=useCred;
+          S._pwd=matchedCred;     // DB에 지금 들어있는 값
+          S._pwdNext=useCred;     // 승격 목표 값
+          localStorage.setItem('baljauk_autologin',JSON.stringify({name:name,cred:matchedCred}));
           if(!S.myCode) S.myCode=row.my_code||genCode(name);
           if(!S.friends) S.friends=[];
           if(!S.savedTrips) S.savedTrips=[];
@@ -3990,16 +3973,25 @@ function warnSaveFailed(detail){
 async function save(){
   if(!S.name) return false;
   try{
-    const payload = {
-      name: S.name,
-      password: S._pwd||'',
-      my_code: S.myCode||'',
-      data: sanitizeState(S),
-      updated_at: new Date().toISOString()
-    };
-    const result = await dbUpsert(payload);
-    if(!result.ok) warnSaveFailed(result.status+' '+result.error);
-    return result.ok;
+    // 비밀번호를 아직 해시로 못 바꾼 계정이면 이번 저장에서 함께 승격시킨다
+    const upgrade = (S._pwdNext && S._pwdNext!==S._pwd) ? S._pwdNext : '';
+    const result = await dbSave(S.name, S._pwd||'', upgrade, S.myCode||'', sanitizeState(S));
+    if(result.ok){
+      if(upgrade){
+        S._pwd = upgrade;
+        // 자동로그인에 저장된 자격증명도 같이 갱신 (안 하면 다음 접속 때 로그인 실패)
+        try{
+          const al = localStorage.getItem('baljauk_autologin');
+          if(al){
+            const p = JSON.parse(al);
+            if(p && p.name===S.name){ localStorage.setItem('baljauk_autologin', JSON.stringify({name:S.name, cred:upgrade})); }
+          }
+        }catch(e){}
+      }
+      return true;
+    }
+    warnSaveFailed(result.mismatched ? '자격증명 불일치' : (result.status+' '+result.error));
+    return false;
   }catch(e){ warnSaveFailed(e&&e.message); return false; }
 }
 
