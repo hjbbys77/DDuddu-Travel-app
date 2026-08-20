@@ -2791,7 +2791,6 @@ function parseAddBulk(){
 // ===== [3] TRIPS PAGE =====
 // 여행 기록 기반으로 방문 데이터 재계산
 function rebuildVisitData(){
-  if(typeof invalidateSleepyCache==='function') invalidateSleepyCache();
   S.visitCounts={};
   S.visitedCodes=[];
   S.visitedISO=[];
@@ -4000,8 +3999,7 @@ let petWalkTimer=null, petFrameTimer=null;
 let petDir=1, petX=20, petPaused=false;
 let petActionActive=false, _petActionTimer=null;
 let petAnim='idle', petFrame=0;
-const ANIM_SPEED = {walk:180, idle:300, eat:250, play:200, sleep:500};
-const ANIM_FRAMES = {walk:4, idle:4, eat:4, play:4, sleep:4};
+const ANIM_SPEED = {walk:180, idle:300, eat:250, play:200};
 
 function setPetAnim(anim){
   if(petAnim===anim) return;
@@ -4075,42 +4073,12 @@ function startPetWalk(){
     // 돌봄 액션 재생 중에는 상태를 건드리지 않는다 (액션이 중간에 끊기지 않도록)
     if(petActionActive) return;
 
-    // 상태 전환 (랜덤)
+    // 상태 전환 (랜덤) — idle ↔ walk
     if(Math.random()<0.003){
-      if(petAnim==='idle'){
-        playAnimLoop('walk');
-      } else if(petAnim==='walk'){
-        playAnimLoop('idle');
-      } else if(petAnim==='sleep'){
-        // [B] 잠에서 깨어나는 경로. 예전엔 이 분기가 없어 sleep에 들어가면 영영 못 나왔다
-        playAnimLoop('idle');
-      }
-    }
-    // sleep 트리거: 마지막 여행이 30일 이상이면 가끔 잠든다
-    // (매 틱 무조건 전환하면 깨어나자마자 다시 자버려서 확률을 준다)
-    else if(petAnim==='idle' && isSleepyMode() && Math.random()<0.004){
-      playAnimLoop('sleep');
+      if(petAnim==='idle')      playAnimLoop('walk');
+      else if(petAnim==='walk') playAnimLoop('idle');
     }
   }, 30);
-}
-
-// [E] 30ms 루프에서 호출되므로 결과를 캐싱한다 (여행이 바뀌면 invalidateSleepyCache 호출)
-let _sleepyCache=null, _sleepyCacheAt=0;
-function invalidateSleepyCache(){ _sleepyCache=null; _sleepyCacheAt=0; }
-function isSleepyMode(){
-  const now=Date.now();
-  if(_sleepyCache!==null && now-_sleepyCacheAt < 60000) return _sleepyCache;
-  _sleepyCache=computeSleepyMode();
-  _sleepyCacheAt=now;
-  return _sleepyCache;
-}
-// 마지막 여행이 30일 이상이면 sleepy 모드
-function computeSleepyMode(){
-  if(!S.trips||S.trips.length===0) return false;
-  const dates=S.trips.map(t=>t.end||t.start).filter(Boolean).sort();
-  const last=new Date(dates[dates.length-1]);
-  const diffDays=(Date.now()-last.getTime())/(1000*60*60*24);
-  return diffDays>=30;
 }
 
 function playPetAction(anim, duration){
