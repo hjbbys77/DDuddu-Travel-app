@@ -553,7 +553,7 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
         </div>
       </div>
       <div class="frow">
-        <div class="fg"><div class="flbl">여행 제목</div><input class="fi" id="addFTitle" placeholder="제주도 봄 여행"/></div>
+        <div class="fg" style="grid-column:1/-1"><div class="flbl">여행 제목</div><input class="fi" id="addFTitle" placeholder="제주도 봄 여행"/></div>
         <div class="fg" style="grid-column:1/-1"><div class="flbl">날짜</div>
           <div id="datePickerWrap">
             <div id="datePickerDisplay" onclick="toggleDatePicker()" style="cursor:pointer;">
@@ -616,8 +616,8 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
         <button class="add-day-btn" onclick="addDay()">＋ Day 추가</button>
       </div>
       <div style="display:flex;gap:8px;margin-top:16px;">
-        <button class="save-btn pbox" style="font-size:14px;padding:12px;" onclick="saveAddTrip()">🐾 여행 저장</button>
-        <button class="modal-close" style="flex:1;padding:10px;" onclick="closeAddTripModal()">취소</button>
+        <button class="save-btn pbox" style="font-size:14px;padding:12px;flex:3;width:auto;" onclick="saveAddTrip()">🐾 여행 저장</button>
+        <button class="modal-close" style="flex:1;padding:10px;min-width:64px;white-space:nowrap;" onclick="closeAddTripModal()">취소</button>
       </div>
     </div>
   </div>
@@ -1104,12 +1104,48 @@ const SUPA_HEADERS = {
   'Authorization': 'Bearer ' + SUPA_KEY,
   'Content-Type': 'application/json'
 };
+// 계정 존재 여부만 확인 (비밀번호 컬럼은 절대 내려받지 않는다)
 async function dbGet(name){
   try{
-    const res = await fetch(SUPA_URL+'/rest/v1/baljauk_users?name=eq.'+encodeURIComponent(name)+'&limit=1', {headers: SUPA_HEADERS});
+    const res = await fetch(SUPA_URL+'/rest/v1/baljauk_users?name=eq.'+encodeURIComponent(name)+'&limit=1&select=name,my_code', {headers: SUPA_HEADERS});
     const arr = await res.json();
     return (arr&&arr.length>0) ? arr[0] : null;
   }catch(e){ return null; }
+}
+// 비밀번호 해시 (SHA-256). https/localhost가 아니면 crypto.subtle이 없어 null 반환 → 평문 폴백
+async function hashPwd(pwd){
+  try{
+    if(!(window.crypto&&window.crypto.subtle)) return null;
+    const buf = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode('dduddu:'+pwd));
+    return 'sha256$'+Array.prototype.map.call(new Uint8Array(buf), function(b){ return b.toString(16).padStart(2,'0'); }).join('');
+  }catch(e){ return null; }
+}
+// 실제로 저장/대조에 쓰는 자격증명 값
+async function credFor(pwd){ return (await hashPwd(pwd)) || pwd; }
+// 닉네임+자격증명이 모두 일치할 때만 행을 돌려준다 (비밀번호는 서버 필터로만 쓰이고 응답에 없음)
+async function dbFindByCred(name, cred){
+  try{
+    const res = await fetch(SUPA_URL+'/rest/v1/baljauk_users?name=eq.'+encodeURIComponent(name)+'&password=eq.'+encodeURIComponent(cred)+'&limit=1&select=name,my_code,data', {headers: SUPA_HEADERS});
+    const arr = await res.json();
+    return (arr&&arr.length>0) ? arr[0] : null;
+  }catch(e){ return null; }
+}
+// 로그인: 해시로 먼저 대조하고, 안 되면 예전 평문 계정으로 대조 (다음 저장 때 해시로 자동 승격)
+async function dbLogin(name, pwd){
+  const h = await hashPwd(pwd);
+  if(h){
+    const row = await dbFindByCred(name, h);
+    if(row) return {row: row, cred: h};
+  }
+  const legacy = await dbFindByCred(name, pwd);
+  if(legacy) return {row: legacy, cred: h || pwd};
+  return null;
+}
+// 저장용 상태 복사본 — 비밀번호(_pwd)는 공개 data 컬럼에 절대 넣지 않는다
+function sanitizeState(state){
+  const copy = Object.assign({}, state);
+  delete copy._pwd;
+  return copy;
 }
 async function dbGetByCode(code){
   try{
@@ -1223,16 +1259,22 @@ async function startApp(){
   if(errEl) errEl.textContent='';
   if(btn){ btn.style.opacity='0.6'; btn.textContent='로그인 중...'; btn.style.pointerEvents='none'; }
   try{
-    const row=await dbGet(name);
-    if(row){
-      // 기존 유저 로그인
-      if(row.password!==pwd){
-        if(errEl)errEl.textContent='비밀번호가 틀렸어요 🔒';
+    const existing=await dbGet(name);
+    if(existing){
+      // 기존 유저 로그인 (비밀번호 대조는 서버 필터로 — 응답에 비번이 실려오지 않음)
+      const auth=await dbLogin(name,pwd);
+      if(!auth){
+        // file://로 직접 열면 crypto.subtle이 없어 해시 대조를 못 한다
+        const insecure=!(await hashPwd(pwd));
+        if(errEl)errEl.textContent=insecure
+          ? '이 방식으로는 로그인할 수 없어요. http://localhost 또는 배포 주소로 접속해주세요'
+          : '비밀번호가 틀렸어요 🔒';
         if(btn){ btn.style.opacity='1'; btn.textContent='시작하기'; btn.style.pointerEvents='auto'; }
         return;
       }
+      const row=auth.row;
       S=row.data||{};
-      S._pwd=pwd;
+      S._pwd=auth.cred;
       if(!S.myCode) S.myCode=row.my_code||genCode(name);
       if(!S.friends) S.friends=[];
       if(!S.savedTrips) S.savedTrips=[];
@@ -1254,14 +1296,17 @@ async function startApp(){
         if(btn){ btn.style.opacity='1'; btn.textContent='시작하기'; btn.style.pointerEvents='auto'; }
         return;
       }
-      S.name=name; S.pet=selectedPet; S._pwd=pwd;
+      S.name=name; S.pet=selectedPet; S._pwd=await credFor(pwd);
       S.myCode=genCode(name);
       S.friends=[];
       S.savedTrips=[];
       currentUserKey=name;
-      const insRes=await dbInsert({name:name,password:pwd,my_code:S.myCode,data:S});
+      const insRes=await dbInsert({name:name,password:S._pwd,my_code:S.myCode,data:sanitizeState(S)});
       if(!insRes.ok){
-        if(errEl)errEl.textContent='계정 생성 오류 (status:'+insRes.status+')';
+        // 409 = 같은 닉네임이 방금 먼저 만들어진 경우 (name 컬럼 UNIQUE 제약)
+        if(errEl)errEl.textContent=insRes.status===409
+          ? '이미 사용 중인 닉네임이에요. 다른 닉네임을 써주세요'
+          : '계정 생성 오류 (status:'+insRes.status+')';
         if(btn){ btn.style.opacity='1'; btn.textContent='시작하기'; btn.style.pointerEvents='auto'; }
         return;
       }
@@ -1274,7 +1319,7 @@ async function startApp(){
   // 자동로그인 처리 (이름+비번만 로컬에 저장)
   const autoChk=document.getElementById('chkAutoLogin');
   if(autoChk&&autoChk.checked){
-    localStorage.setItem('baljauk_autologin',JSON.stringify({name,pwd}));
+    localStorage.setItem('baljauk_autologin',JSON.stringify({name:name,cred:S._pwd}));
   } else {
     localStorage.removeItem('baljauk_autologin');
   }
@@ -1503,12 +1548,23 @@ async function checkOnboarding(){
   try{
     const al=localStorage.getItem('baljauk_autologin');
     if(al){
-      const {name,pwd}=JSON.parse(al);
-      if(name&&pwd){
-        const row=await dbGet(name);
-        if(row&&row.password===pwd){
+      const saved=JSON.parse(al);
+      const name=saved.name;
+      const plain=saved.pwd||null;            // 구버전(평문 저장) 호환
+      const cred=saved.cred||plain;
+      if(name&&cred){
+        let row=null, useCred=cred;
+        if(plain){
+          const h=await hashPwd(plain);
+          if(h){ row=await dbFindByCred(name,h); if(row) useCred=h; }
+          if(!row){ row=await dbFindByCred(name,plain); if(row) useCred=h||plain; }
+        } else {
+          row=await dbFindByCred(name,cred);
+        }
+        if(row){
+          localStorage.setItem('baljauk_autologin',JSON.stringify({name:name,cred:useCred}));
           S=row.data||{};
-          S._pwd=pwd;
+          S._pwd=useCred;
           if(!S.myCode) S.myCode=row.my_code||genCode(name);
           if(!S.friends) S.friends=[];
           if(!S.savedTrips) S.savedTrips=[];
@@ -1586,7 +1642,9 @@ function renderPetWidget(){
   const pct=Math.min(100,Math.round((S.petLove||0)/info.xpNeeded*100));
   document.getElementById('petXpBar').style.width=pct+'%';
   document.getElementById('petXpTxt').textContent=(S.petXP||0)+'곳 방문';
-  document.getElementById('petXpNext').textContent=info.level>=100?'🎉 완전 정복!':'';
+  document.getElementById('petXpNext').textContent=info.level>=100
+    ? '🎉 완전 정복!'
+    : `💕 ${S.petAffection||0}/${MAX_LOVE}`;
   // 스프라이트
   const spriteKey=info.level>=80?S.pet+'_happy':S.pet;
   const img=SPRITES[spriteKey]||SPRITES[S.pet];
@@ -1630,7 +1688,14 @@ function petAction(action){
   }
   // 횟수 차감
   S[chargeKey]=(S[chargeKey]||1)-1;
-  const msg=`${S.name||''}의 친구가 좋아해요!`;
+  // 애정도 증가 (레벨 진행도와 별개로 쌓이는 값)
+  const gain=ACTION_LOVE[action]||0;
+  const before=S.petAffection||0;
+  S.petAffection=Math.min(MAX_LOVE, before+gain);
+  const gained=S.petAffection-before;
+  const msg=gained>0
+    ? `${S.name||''}의 친구가 좋아해요! 애정도 +${gained} (${S.petAffection}/${MAX_LOVE})`
+    : `${S.name||''}의 친구가 좋아해요! 애정도가 가득 찼어요 💕`;
   // 애니메이션
   const animMap={meal:'eat', walk:'walk', play:'play'};
   const anim=animMap[action]||'idle';
@@ -2089,7 +2154,7 @@ function renderWorldMap(cont){
   wZoomBtnDiv.innerHTML=`
     <button onclick="worldZoomIn()" style="width:36px;height:36px;font-size:20px;border:2px solid var(--pkd);background:white;border-radius:6px;cursor:pointer;color:var(--pkd);">+</button>
     <button onclick="worldZoomOut()" style="width:36px;height:36px;font-size:20px;border:2px solid var(--pkd);background:white;border-radius:6px;cursor:pointer;color:var(--pkd);">−</button>
-    <button onclick="worldZoomReset()" style="width:36px;height:36px;font-size:16px;border:2px solid var(--pkd);background:white;border-radius:6px;cursor:pointer;color:var(--pkd);">△</button>`;
+    <button onclick="worldZoomReset()" style="width:36px;height:36px;font-size:16px;border:2px solid var(--pkd);background:white;border-radius:6px;cursor:pointer;color:var(--pkd);">⌂</button>`;
   wrap.style.position='relative';
   wrap.appendChild(wZoomBtnDiv);
   // 전역 저장
@@ -2476,6 +2541,7 @@ function parseAddBulk(){
 // ===== [3] TRIPS PAGE =====
 // 여행 기록 기반으로 방문 데이터 재계산
 function rebuildVisitData(){
+  if(typeof invalidateSleepyCache==='function') invalidateSleepyCache();
   S.visitCounts={};
   S.visitedCodes=[];
   S.visitedISO=[];
@@ -2898,6 +2964,7 @@ function closeExifModal(){
 
 async function handleExifPhotos(event){
   const files=Array.from(event.target.files);
+  event.target.value='';   // 같은 사진을 연속으로 다시 고를 수 있도록 초기화
   if(!files.length) return;
   document.getElementById('exifModal').classList.add('show');
   document.getElementById('exifModalBody').innerHTML=
@@ -3080,12 +3147,8 @@ async function renderExifResults(results, files){
   const repLocName=topLoc?topLoc[0]:'';
   const repLocObj=results.find(r=>r.locName===repLocName)?.locObj||null;
 
-  // 사진 미리보기 URL 생성
-  const previewUrls=await Promise.all(files.map(f=>new Promise(res=>{
-    const reader=new FileReader();
-    reader.onload=e=>res(e.target.result);
-    reader.readAsDataURL(f);
-  })));
+  // 사진 미리보기 URL 생성 (원본 그대로 두면 여행 1건이 수십 MB가 되므로 압축본을 쓴다)
+  const previewUrls=(await Promise.all(files.map(f=>compressPhoto(f)))).filter(Boolean);
 
   const noGpsCount=results.filter(r=>r.lat==null).length;
 
@@ -3571,8 +3634,10 @@ function triggerPhotoUpload(tripIdx){
 function compressPhoto(file){
   return new Promise(function(resolve){
     const reader=new FileReader();
+    reader.onerror=function(){ resolve(null); };   // 읽기 실패해도 전체가 멈추지 않도록
     reader.onload=function(e){
       const img=new Image();
+      img.onerror=function(){ resolve(null); };    // 디코딩 실패 이미지 건너뛰기
       img.onload=function(){
         const MAX_PX=1200;
         let w=img.width, h=img.height;
@@ -3593,6 +3658,7 @@ function compressPhoto(file){
 }
 function handlePhotoUpload(event){
   const files=Array.from(event.target.files);
+  event.target.value='';   // 같은 사진을 연속으로 다시 고를 수 있도록 초기화
   if(!files.length||_photoUploadIdx<0) return;
   const t=S.trips[_photoUploadIdx];
   if(!t.photos) t.photos=[];
@@ -3601,13 +3667,14 @@ function handlePhotoUpload(event){
   if(remaining<=0){showPopup('📷','사진 최대 5장','여행당 최대 5장까지 추가할 수 있어요.');return;}
   const toLoad=Array.from(files).slice(0,remaining);
   if(files.length>remaining) showPopup('📷',`${remaining}장만 추가됩니다`,`사진은 여행당 최대 ${MAX_PHOTOS}장까지예요.`);
-  let loaded=0;
-  toLoad.forEach(function(file){
-    compressPhoto(file).then(function(compressed){
-      t.photos.push(compressed);
-      loaded++;
-      if(loaded===toLoad.length){save();renderTrips();openTripDetail(_photoUploadIdx);}
-    });
+  const tripIdx=_photoUploadIdx;
+  // 한 장이 실패해도 나머지는 저장되도록 Promise.all로 처리
+  Promise.all(toLoad.map(function(file){ return compressPhoto(file); })).then(function(results){
+    const ok=results.filter(Boolean);
+    ok.forEach(function(c){ t.photos.push(c); });
+    const failed=results.length-ok.length;
+    if(ok.length){ save(); renderTrips(); openTripDetail(tripIdx); }
+    if(failed>0) showPopup('📷','일부 사진을 불러오지 못했어요',failed+'장은 형식을 읽을 수 없어 건너뛰었어요.');
   });
 }
 function deleteTripPhoto(tripIdx,photoIdx){
@@ -3643,6 +3710,16 @@ function showXpPopup(){
     `<div style="font-size:12px;color:var(--txl);">여행+50pt · 미션+100pt 적립<br>🍪간식-5pt · 🍚밥-15pt · 🦮산책-30pt 소모 → 레벨바↑</div>`;
   document.getElementById('popBg').classList.add('show');
 }
+let _lastSaveWarn=0;
+function warnSaveFailed(detail){
+  // 같은 문제로 팝업이 도배되지 않도록 30초에 한 번만 알린다
+  const now=Date.now();
+  if(now-_lastSaveWarn < 30000) return;
+  _lastSaveWarn=now;
+  try{ showPopup('⚠️','저장하지 못했어요','인터넷 연결을 확인하고 다시 시도해주세요.\n계속 실패하면 백업 메뉴에서 데이터를 내보내 두세요.'); }
+  catch(e){ console.warn('save warn popup failed', e); }
+  console.warn('Supabase save failed:', detail);
+}
 async function save(){
   if(!S.name) return false;
   try{
@@ -3650,18 +3727,19 @@ async function save(){
       name: S.name,
       password: S._pwd||'',
       my_code: S.myCode||'',
-      data: S,
+      data: sanitizeState(S),
       updated_at: new Date().toISOString()
     };
     const result = await dbUpsert(payload);
-    if(!result.ok) console.warn('Supabase save failed:', result.status, result.error);
+    if(!result.ok) warnSaveFailed(result.status+' '+result.error);
     return result.ok;
-  }catch(e){ console.warn('Supabase save error:', e); return false; }
+  }catch(e){ warnSaveFailed(e&&e.message); return false; }
 }
 
 // ===== 캐릭터 애니메이션 엔진 =====
 let petWalkTimer=null, petFrameTimer=null;
 let petDir=1, petX=20, petPaused=false;
+let petActionActive=false, _petActionTimer=null;
 let petAnim='idle', petFrame=0;
 const ANIM_SPEED = {walk:180, idle:300, eat:250, play:200, sleep:500};
 const ANIM_FRAMES = {walk:4, idle:4, eat:4, play:4, sleep:4};
@@ -3670,6 +3748,23 @@ function setPetAnim(anim){
   if(petAnim===anim) return;
   petAnim=anim; petFrame=0;
   renderPetFrame();
+}
+
+// 현재 캐릭터의 해당 모션 프레임 수 (없으면 idle로 폴백)
+function petFrameCount(anim){
+  const d=ANIM_SPRITES[S.pet||'golden'];
+  if(!d) return 4;
+  const fr=d[anim]||d['idle'];
+  return (fr&&fr.length)||4;
+}
+// 모션 전환 + 프레임 타이머 재설정을 한 번에 (이전에는 호출부마다 중복돼 있었음)
+function playAnimLoop(anim){
+  setPetAnim(anim);
+  if(petFrameTimer) clearInterval(petFrameTimer);
+  petFrameTimer=setInterval(()=>{
+    petFrame=(petFrame+1)%petFrameCount(anim);
+    renderPetFrame();
+  }, ANIM_SPEED[anim]||250);
 }
 
 function renderPetFrame(){
@@ -3702,16 +3797,14 @@ function startPetWalk(){
   petAnim='idle';
 
   // 프레임 애니메이션 타이머
-  petFrameTimer=setInterval(()=>{
-    petFrame=(petFrame+1)%4;
-    renderPetFrame();
-  }, ANIM_SPEED[petAnim]||250);
+  playAnimLoop('idle');
 
   // 이동 타이머
   petWalkTimer=setInterval(()=>{
     if(petPaused) return;
     const roomW=(room.clientWidth||220)-10;
-    const sprW=64;
+    // [D] 스프라이트 실제 렌더 폭 사용 (예전엔 64로 고정돼 오른쪽 벽을 파고들었음)
+    const sprW=sprite.offsetWidth||80;
 
     if(petAnim==='walk'){
       petX+=petDir*1.5;
@@ -3720,30 +3813,40 @@ function startPetWalk(){
       sprite.style.left=petX+'px';
     }
 
+    // 돌봄 액션 재생 중에는 상태를 건드리지 않는다 (액션이 중간에 끊기지 않도록)
+    if(petActionActive) return;
+
     // 상태 전환 (랜덤)
     if(Math.random()<0.003){
-      // idle → walk → idle 사이클
       if(petAnim==='idle'){
-        setPetAnim('walk');
-        clearInterval(petFrameTimer);
-        petFrameTimer=setInterval(()=>{petFrame=(petFrame+1)%4;renderPetFrame();},ANIM_SPEED['walk']);
+        playAnimLoop('walk');
       } else if(petAnim==='walk'){
-        setPetAnim('idle');
-        clearInterval(petFrameTimer);
-        petFrameTimer=setInterval(()=>{petFrame=(petFrame+1)%4;renderPetFrame();},ANIM_SPEED['idle']);
+        playAnimLoop('idle');
+      } else if(petAnim==='sleep'){
+        // [B] 잠에서 깨어나는 경로. 예전엔 이 분기가 없어 sleep에 들어가면 영영 못 나왔다
+        playAnimLoop('idle');
       }
     }
-    // sleep 트리거: 마지막 여행이 30일 이상이면 idle 대신 sleep
-    if(petAnim==='idle' && isSleepyMode()){
-      setPetAnim('sleep');
-      clearInterval(petFrameTimer);
-      petFrameTimer=setInterval(()=>{petFrame=(petFrame+1)%4;renderPetFrame();},ANIM_SPEED['sleep']);
+    // sleep 트리거: 마지막 여행이 30일 이상이면 가끔 잠든다
+    // (매 틱 무조건 전환하면 깨어나자마자 다시 자버려서 확률을 준다)
+    else if(petAnim==='idle' && isSleepyMode() && Math.random()<0.004){
+      playAnimLoop('sleep');
     }
   }, 30);
 }
 
-// 마지막 여행이 30일 이상이면 sleepy 모드
+// [E] 30ms 루프에서 호출되므로 결과를 캐싱한다 (여행이 바뀌면 invalidateSleepyCache 호출)
+let _sleepyCache=null, _sleepyCacheAt=0;
+function invalidateSleepyCache(){ _sleepyCache=null; _sleepyCacheAt=0; }
 function isSleepyMode(){
+  const now=Date.now();
+  if(_sleepyCache!==null && now-_sleepyCacheAt < 60000) return _sleepyCache;
+  _sleepyCache=computeSleepyMode();
+  _sleepyCacheAt=now;
+  return _sleepyCache;
+}
+// 마지막 여행이 30일 이상이면 sleepy 모드
+function computeSleepyMode(){
   if(!S.trips||S.trips.length===0) return false;
   const dates=S.trips.map(t=>t.end||t.start).filter(Boolean).sort();
   const last=new Date(dates[dates.length-1]);
@@ -3753,15 +3856,15 @@ function isSleepyMode(){
 
 function playPetAction(anim, duration){
   // 돌봄 액션 시 해당 애니메이션 재생 후 복귀
-  petPaused=true;
-  setPetAnim(anim);
-  clearInterval(petFrameTimer);
-  petFrameTimer=setInterval(()=>{petFrame=(petFrame+1)%4;renderPetFrame();},ANIM_SPEED[anim]);
-  setTimeout(()=>{
+  // [C] 산책은 제자리걸음이 아니라 실제로 방을 돌아다니게 한다 (밥·공놀이는 제자리 유지)
+  petPaused=(anim!=='walk');
+  petActionActive=true;
+  playAnimLoop(anim);
+  if(_petActionTimer) clearTimeout(_petActionTimer);
+  _petActionTimer=setTimeout(()=>{
     petPaused=false;
-    setPetAnim('idle');
-    clearInterval(petFrameTimer);
-    petFrameTimer=setInterval(()=>{petFrame=(petFrame+1)%4;renderPetFrame();},ANIM_SPEED['idle']);
+    petActionActive=false;
+    playAnimLoop('idle');
   }, duration||2000);
 }
 

@@ -5,12 +5,8 @@
       "destination": "/files/index.html"
     },
     {
-      "source": "/font.ttf",
-      "destination": "/files/font.ttf"
-    },
-    {
-      "source": "/sigungu.json",
-      "destination": "/files/sigungu.json"
+      "source": "/:path*",
+      "destination": "/files/:path*"
     }
   ],
   "headers": [
@@ -28,6 +24,24 @@
         {
           "key": "Access-Control-Allow-Origin",
           "value": "*"
+        }
+      ]
+    },
+    {
+      "source": "/",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)\\.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
         }
       ]
     }
