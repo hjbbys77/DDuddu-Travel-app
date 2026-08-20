@@ -3905,6 +3905,36 @@ function compressPhoto(file){
     reader.readAsDataURL(file);
   });
 }
+// 사진의 EXIF 촬영일만 읽는다.
+// extractExifFromFile과 달리 파일 수정시각(lastModified) 폴백을 쓰지 않는다.
+// 카톡으로 받은 사진 등은 수정시각이 실제 촬영일과 무관해서, 그걸로 여행 날짜를
+// 말없이 채워버리면 오히려 틀린 날짜가 박힌다.
+async function extractPhotoDateOnly(file){
+  try{
+    if(typeof exifr !== 'undefined'){
+      const d = await exifr.parse(file, {exif:true, tiff:true, ifd0:true});
+      if(d){
+        if(d.DateTimeOriginal) return formatExifDate(d.DateTimeOriginal);
+        if(d.DateTime)         return formatExifDate(d.DateTime);
+      }
+    }
+  }catch(e){}
+  // exifr이 실패하면 JPEG 바이너리를 직접 파싱 (iOS Safari 대응)
+  try{ return await readExifDateManual(file); }catch(e){ return null; }
+}
+
+// 비어 있는 날짜만 사진 촬영일로 채운다. 이미 넣어둔 날짜는 건드리지 않는다.
+function fillTripDatesFromPhotos(trip, dates){
+  const valid=(dates||[]).filter(Boolean).sort();
+  if(!valid.length) return null;
+  if(trip.start && trip.end) return null;          // 이미 다 채워져 있음
+  const min=valid[0], max=valid[valid.length-1];
+  if(!trip.start && !trip.end){ trip.start=min; trip.end=max; }
+  else if(trip.start && !trip.end){ trip.end = (max>trip.start) ? max : trip.start; }
+  else if(!trip.start && trip.end){ trip.start = (min<trip.end) ? min : trip.end; }
+  return {start:trip.start, end:trip.end};
+}
+
 function handlePhotoUpload(event){
   const files=Array.from(event.target.files);
   event.target.value='';   // 같은 사진을 연속으로 다시 고를 수 있도록 초기화
@@ -3917,13 +3947,27 @@ function handlePhotoUpload(event){
   const toLoad=Array.from(files).slice(0,remaining);
   if(files.length>remaining) showPopup('📷',`${remaining}장만 추가됩니다`,`사진은 여행당 최대 ${MAX_PHOTOS}장까지예요.`);
   const tripIdx=_photoUploadIdx;
-  // 한 장이 실패해도 나머지는 저장되도록 Promise.all로 처리
-  Promise.all(toLoad.map(function(file){ return compressPhoto(file); })).then(function(results){
+  const hadNoDate = !t.start || !t.end;
+  // 압축과 EXIF 촬영일 추출을 함께 처리. 한 장이 실패해도 나머지는 저장된다.
+  Promise.all([
+    Promise.all(toLoad.map(function(file){ return compressPhoto(file); })),
+    Promise.all(toLoad.map(function(file){ return extractPhotoDateOnly(file); }))
+  ]).then(function(both){
+    const results=both[0], photoDates=both[1];
     const ok=results.filter(Boolean);
     ok.forEach(function(c){ t.photos.push(c); });
     const failed=results.length-ok.length;
+    // 날짜가 비어 있던 여행이면 사진 촬영일로 채운다
+    const filled = hadNoDate ? fillTripDatesFromPhotos(t, photoDates) : null;
     if(ok.length){ save(); renderTrips(); openTripDetail(tripIdx); }
-    if(failed>0) showPopup('📷','일부 사진을 불러오지 못했어요',failed+'장은 형식을 읽을 수 없어 건너뛰었어요.');
+    if(filled){
+      const range = (filled.start===filled.end) ? filled.start : (filled.start+' ~ '+filled.end);
+      showPopup('📅','사진 날짜로 채웠어요', range+'\n다르면 여행을 열어 수정할 수 있어요.');
+    } else if(failed>0){
+      showPopup('📷','일부 사진을 불러오지 못했어요',failed+'장은 형식을 읽을 수 없어 건너뛰었어요.');
+    } else if(hadNoDate && ok.length){
+      showPopup('📅','사진에 촬영 날짜가 없어요','여행을 열어 날짜를 직접 넣어주세요.');
+    }
   });
 }
 function deleteTripPhoto(tripIdx,photoIdx){
