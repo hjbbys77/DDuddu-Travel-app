@@ -3006,7 +3006,9 @@ function renderTrips(){
           ${!dc?`<span class="trip-tag" style="cursor:pointer;background:var(--pkp);color:var(--pkdr);" onclick="event.stopPropagation();openTripEdit(${i})">＋ 일정 추가</span>`:''}
           ${dc?`<span class="trip-tag" style="cursor:pointer;background:var(--pkp);color:var(--pkdr);" onclick="event.stopPropagation();openTripEdit(${i})">✏️ 일정 수정</span>`:''}
         </div>
-        ${(t.photos&&t.photos.length)?`<div class="trip-photos">${t.photos.map((src,pi)=>`<img class="trip-photo" src="${src}" onclick="event.stopPropagation();openPhotoFull('${src}')" />`).join('')}<div class="photo-add-btn" onclick="event.stopPropagation();triggerPhotoUpload(${i})"><span>＋</span><span class="photo-add-label">사진 추가</span></div></div>`:`<div style="padding:4px 0 2px;"><div class="photo-add-btn" style="width:100%;height:36px;flex-direction:row;gap:6px;border-radius:6px;" onclick="event.stopPropagation();triggerPhotoUpload(${i})"><span style="font-size:16px;">📷</span><span class="photo-add-label" style="font-size:11px;">사진 추가</span></div></div>`}
+        ${(t.photos&&t.photos.length)?`<div class="trip-photos">${t.photos.map((src,pi)=>`<img class="trip-photo" src="${src}" onclick="event.stopPropagation();openPhotoFull('${src}')" />`).join('')}${(t.photos||[]).length>=5
+        ? `<div class="photo-add-btn" style="opacity:.55;" onclick="event.stopPropagation();showPhotoFullMsg()"><span>🐾</span><span class="photo-add-label">5/5</span></div>`
+        : `<div class="photo-add-btn" onclick="event.stopPropagation();triggerPhotoUpload(${i})"><span>＋</span><span class="photo-add-label">사진 ${(t.photos||[]).length}/5</span></div>`}</div>`:`<div style="padding:4px 0 2px;"><div class="photo-add-btn" style="width:100%;height:36px;flex-direction:row;gap:6px;border-radius:6px;" onclick="event.stopPropagation();triggerPhotoUpload(${i})"><span style="font-size:16px;">📷</span><span class="photo-add-label" style="font-size:11px;">사진 추가</span></div></div>`}
       </div>
     </div>`;
   }).join('');
@@ -3141,7 +3143,9 @@ function openTripDetail(idx){
   const body=document.getElementById('modalBody');
   // Photo section
   const photos=t.photos||[];
-  const photoHtml=`<div style="margin-bottom:10px;"><div style="font-size:12px;color:var(--txl);margin-bottom:4px;">📷 사진</div><div class="modal-photo-scroll">${photos.map((src,pi)=>`<div class="modal-photo-thumb"><img src="${src}" onclick="openPhotoFull('${src}')"/><button class="modal-photo-del" onclick="deleteTripPhoto(${idx},${pi})">✕</button></div>`).join('')}<div class="photo-add-btn" style="width:72px;height:72px;" onclick="triggerPhotoUpload(${idx})"><span>＋</span><span class="photo-add-label">사진 추가</span></div></div></div>`;
+  const photoHtml=`<div style="margin-bottom:10px;"><div style="font-size:12px;color:var(--txl);margin-bottom:4px;">📷 사진</div><div class="modal-photo-scroll">${photos.map((src,pi)=>`<div class="modal-photo-thumb"><img src="${src}" onclick="openPhotoFull('${src}')"/><button class="modal-photo-del" onclick="deleteTripPhoto(${idx},${pi})">✕</button></div>`).join('')}${(t.photos||[]).length>=5
+          ? `<div class="photo-add-btn" style="width:72px;height:72px;opacity:.55;" onclick="showPhotoFullMsg()"><span>🐾</span><span class="photo-add-label">5/5</span></div>`
+          : `<div class="photo-add-btn" style="width:72px;height:72px;" onclick="triggerPhotoUpload(${idx})"><span>＋</span><span class="photo-add-label">사진 ${(t.photos||[]).length}/5</span></div>`}</div></div>`;
   const days=t.days||{};
   if(!Object.keys(days).length){
     body.innerHTML=photoHtml+`<div style="text-align:center;padding:24px;color:var(--txl);font-size:13px;">저장된 일정이 없어요<br><button class="parse-btn" style="margin-top:10px;" onclick="closeModal();setTimeout(()=>openTripEdit(${idx}),100)">+ 일정 추가하기</button></div>`;
@@ -3880,7 +3884,7 @@ const TAB_GUIDE = {
   trips: {
     icon: '📖',
     title: '여행 기록을 모아둬요',
-    msg: '기록한 여행이 모두 여기 쌓여요.\n\n사진을 넣으면 찍은 날짜로 여행 날짜가\n자동으로 채워지고, 하루하루 일정도\n적어둘 수 있어요.'
+    msg: '기록한 여행이 모두 여기 쌓여요.\n\n사진을 넣으면 찍은 날짜로 여행 날짜가\n자동으로 채워져요. 사진은 여행당 5장까지\n담을 수 있어요.\n\n하루하루 일정도 적어둘 수 있어요.'
   },
   missions: {
     icon: '⭐',
@@ -3967,6 +3971,9 @@ function hideTip(){document.getElementById('mapTip').style.display='none';}
 function showPopup(star,title,msg){document.getElementById('popStar').textContent=star;document.getElementById('popTitle').textContent=title;document.getElementById('popMsg').textContent=msg;document.getElementById('popBg').classList.add('show');}
 function closePopup(){document.getElementById('popBg').classList.remove('show');}
 let _photoUploadIdx=-1;
+function showPhotoFullMsg(){
+  showPopup('📷','사진이 가득 찼어요','여행 하나에 사진은 5장까지 담을 수 있어요.\n\n다른 사진을 넣으려면 기존 사진을 지워주세요.');
+}
 function triggerPhotoUpload(tripIdx){
   _photoUploadIdx=tripIdx;
   const inp=document.getElementById('photoFileInput');
