@@ -1312,8 +1312,56 @@ function sanitizeState(state){
   const copy = Object.assign({}, state);
   delete copy._pwd;
   delete copy._pwdNext;
+  // 사진은 별도 테이블에 있으므로 data에 넣지 않는다 (로그인 payload를 가볍게)
+  if(Array.isArray(copy.trips)){
+    copy.trips = copy.trips.map(function(t){
+      const c = Object.assign({}, t);
+      delete c.photos;
+      return c;
+    });
+  }
   return copy;
 }
+// ===== 사진 (별도 테이블) =====
+// 사진을 data(JSON)에 넣어두면 로그인마다 전부 내려받아야 해서 6.5MB에 최대 16초가 걸렸다.
+// 이제 사진은 baljauk_photos에 따로 저장하고, 로그인 직후 비동기로 채운다.
+const MAX_PHOTOS = 10;
+
+async function dbPhotosList(name, cred){
+  const r = await rpc('app_photos_list', {p_name:name, p_cred:cred});
+  return (r.ok && Array.isArray(r.data)) ? r.data : null;
+}
+async function dbPhotosSet(name, cred, tripId, photos){
+  const r = await rpc('app_photos_set', {p_name:name, p_cred:cred, p_trip_id:tripId, p_photos:photos||[]});
+  return r.ok && typeof r.data === 'number' && r.data >= 0;
+}
+async function dbPhotosDeleteTrip(name, cred, tripId){
+  const r = await rpc('app_photos_delete_trip', {p_name:name, p_cred:cred, p_trip_id:tripId});
+  return r.ok;
+}
+async function dbFriendPhotos(code, tripId){
+  const r = await rpc('app_friend_photos', {p_code:code, p_trip_id:tripId});
+  return (r.ok && Array.isArray(r.data)) ? r.data.map(function(x){ return x.data; }) : [];
+}
+
+// 로그인 후 사진을 뒤늦게 채운다 (로그인 자체를 막지 않는다)
+let _photosLoaded = false;
+async function loadPhotos(){
+  if(!S.name || !S._pwd) return;
+  const rows = await dbPhotosList(S.name, S._pwd);
+  if(!rows) return;
+  const byTrip = {};
+  rows.forEach(function(r){ (byTrip[r.trip_id] = byTrip[r.trip_id] || []).push(r.data); });
+  (S.trips||[]).forEach(function(t){ t.photos = byTrip[t.id] || []; });
+  _photosLoaded = true;
+  try{ renderTrips(); }catch(e){}
+}
+// 한 여행의 사진을 서버에 반영
+async function syncPhotos(trip){
+  if(!trip || !S.name || !S._pwd) return false;
+  return await dbPhotosSet(S.name, S._pwd, trip.id, (trip.photos||[]).slice(0, MAX_PHOTOS));
+}
+
 // 계정 삭제
 async function dbDeleteAccount(name, matchedCred){
   const r = await rpc('app_delete_account', {p_name:name, p_cred:matchedCred});
@@ -1509,6 +1557,7 @@ async function startApp(){
   renderStats();
   setTimeout(function(){ refreshMapColors(); }, 100);
   maybeShowTabGuide('home');
+  loadPhotos();
 }
 
 // ===== 약관 본문 =====
@@ -1934,7 +1983,7 @@ async function checkOnboarding(){
             visitedCodes: (S.visitedCodes||[]).length,
             visitCounts: Object.keys(S.visitCounts||{}).length
           });
-          applyUserProfile(); return;
+          applyUserProfile(); loadPhotos(); return;
         }
         localStorage.removeItem('baljauk_autologin');
       }
@@ -2874,7 +2923,7 @@ let addTripLocs=[];
 let addTripWith='';
 let addTripPhotos=[];
 function triggerAddTripPhoto(){
-  if(addTripPhotos.length>=5){ showPhotoFullMsg(); return; }
+  if(addTripPhotos.length>=MAX_PHOTOS){ showPhotoFullMsg(); return; }
   document.getElementById('addTripPhotoInput').click();
 }
 function renderAddTripPhotos(){
@@ -2895,7 +2944,7 @@ async function handleAddTripPhoto(event){
   const files=Array.from(event.target.files);
   event.target.value='';
   if(!files.length) return;
-  const room=5-addTripPhotos.length;
+  const room=MAX_PHOTOS-addTripPhotos.length;
   if(room<=0){ showPhotoFullMsg(); return; }
   const toLoad=files.slice(0,room);
   if(files.length>room) showPopup('📷', room+'장만 추가됩니다', '사진은 여행당 최대 5장까지예요.');
@@ -2991,8 +3040,9 @@ function saveAddTrip(){
       if(el) el.style.fill=getVisitColorWd(S.visitCounts[iso]);
     }
   });
-  S.trips.unshift({id:Date.now(),title,with:addTripWith,photos:addTripPhotos.slice(0,5),start:document.getElementById('addFStart').value,end:document.getElementById('addFEnd').value,days,loc:locsToSave[0]||null,locs:locsToSave});
+  S.trips.unshift({id:Date.now(),title,with:addTripWith,photos:addTripPhotos.slice(0,MAX_PHOTOS),start:document.getElementById('addFStart').value,end:document.getElementById('addFEnd').value,days,loc:locsToSave[0]||null,locs:locsToSave});
   addXP(TRIP_XP,'여행 기록',TRIP_CHARGES);
+  syncPhotos(S.trips[0]);
   save(); renderStats(); checkMissions();
   closeAddTripModal();
   refreshMapColors();
@@ -3101,6 +3151,8 @@ function recalcLevelFromTrips(){
 }
 function deleteTrip(idx){
   if(!confirm('이 여행을 삭제할까요?')) return;
+  const gone=S.trips[idx];
+  if(gone && S.name && S._pwd) dbPhotosDeleteTrip(S.name, S._pwd, gone.id);
   S.trips.splice(idx,1);
   rebuildVisitData();
   recalcLevelFromTrips(); // 레벨+포인트 재계산
@@ -3804,7 +3856,7 @@ function saveExifTrip(){
   });
 
   // 사진 최대 5장
-  const savedPhotos=photos.slice(0,5);
+  const savedPhotos=photos.slice(0,MAX_PHOTOS);
   S.trips.unshift({
     id:Date.now(), title, start, end,
     days:{}, photos:savedPhotos,
@@ -3812,6 +3864,7 @@ function saveExifTrip(){
     _fromExif:true
   });
   addXP(TRIP_XP,'여행 기록(사진)',TRIP_CHARGES);
+  syncPhotos(S.trips[0]);
   save(); renderStats(); checkMissions();
   closeExifModal();
   refreshMapColors();
@@ -3822,10 +3875,15 @@ function saveExifTrip(){
 // ===== FRIEND / SHARING SYSTEM =====
 
 // ===== 친구 여행 상세 보기 =====
-function openFriendTripDetail(code, idx){
+async function openFriendTripDetail(code, idx){
   const cache=(window._friendTripsCache||{})[code]||[];
   const t=cache[idx];
   if(!t){ alert('여행 정보를 불러올 수 없어요. 다시 검색해주세요.'); return; }
+  // 친구 사진은 별도 테이블에 있으므로 따로 가져온다
+  if(t.id && !t._photosFetched){
+    t.photos = await dbFriendPhotos(code, t.id);
+    t._photosFetched = true;
+  }
   showFriendTripModal(t, null, code, idx);
 }
 
@@ -3846,6 +3904,13 @@ function showFriendTripModal(t, savedIdx, fromCode, fromIdx){
 
   const days=t.days||{};
   const dayKeys=Object.keys(days).sort();
+
+  const fPhotos=(t.photos||[]);
+  const photosHtml = fPhotos.length
+    ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">'+
+        fPhotos.map(function(src){ return '<img src="'+src+'" onclick="openPhotoFull(this.src)" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:2px solid var(--pkl);cursor:pointer;">'; }).join('')+
+      '</div>'
+    : '';
 
   let daysHtml='';
   if(dayKeys.length===0){
@@ -3883,6 +3948,7 @@ function showFriendTripModal(t, savedIdx, fromCode, fromIdx){
         <button onclick="document.getElementById('friendTripDetailOverlay').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--pkd);padding:4px;">✕</button>
       </div>
       <div style="padding:14px;max-height:60vh;overflow-y:auto;">
+        ${photosHtml}
         ${daysHtml}
       </div>
       <div style="padding:12px 14px;border-top:2px solid var(--pkl);display:flex;flex-direction:column;gap:8px;">
@@ -3917,13 +3983,15 @@ function addFriendTripToMyTrips(){
     locs: JSON.parse(JSON.stringify(t.locs||[])),
     loc: t.loc||null,
     days: JSON.parse(JSON.stringify(t.days||{})),
-    photos: [],
+    photos: (t.photos||[]).slice(0, MAX_PHOTOS),
     _fromFriend: fromName,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    id: Date.now()
   };
   S.trips.push(newTrip);
   rebuildVisitData();
   recalcLevelFromTrips();
+  syncPhotos(newTrip);   // 복사한 사진도 내 계정으로 저장
   save();
   var ov=document.getElementById('friendTripDetailOverlay');
   if(ov) ov.remove();
@@ -4179,7 +4247,7 @@ const TAB_GUIDE = {
   trips: {
     icon: '📖',
     title: '여행 기록을 모아둬요',
-    msg: '기록한 여행이 모두 여기 쌓여요.\n\n＋ 여행 기록 으로 새 여행을 남기고,\n여행 날짜순·추가순으로 바꿔 볼 수 있어요.\n\n사진을 넣으면 찍은 날짜가 자동으로\n채워져요. (여행당 5장까지)'
+    msg: '기록한 여행이 모두 여기 쌓여요.\n\n＋ 여행 기록 으로 새 여행을 남기고,\n여행 날짜순·추가순으로 바꿔 볼 수 있어요.\n\n사진을 넣으면 찍은 날짜가 자동으로\n채워져요. (여행당 10장까지)'
   },
   missions: {
     icon: '⭐',
@@ -4267,7 +4335,7 @@ function showPopup(star,title,msg){document.getElementById('popStar').textConten
 function closePopup(){document.getElementById('popBg').classList.remove('show');}
 let _photoUploadIdx=-1;
 function showPhotoFullMsg(){
-  showPopup('📷','사진이 가득 찼어요','여행 하나에 사진은 5장까지 담을 수 있어요.\n\n다른 사진을 넣으려면 기존 사진을 지워주세요.');
+  showPopup('📷','사진이 가득 찼어요','여행 하나에 사진은 '+MAX_PHOTOS+'장까지 담을 수 있어요.\n\n다른 사진을 넣으려면 기존 사진을 지워주세요.');
 }
 function triggerPhotoUpload(tripIdx){
   _photoUploadIdx=tripIdx;
@@ -4336,7 +4404,6 @@ function handlePhotoUpload(event){
   if(!files.length||_photoUploadIdx<0) return;
   const t=S.trips[_photoUploadIdx];
   if(!t.photos) t.photos=[];
-  const MAX_PHOTOS=5;
   const remaining=MAX_PHOTOS-(t.photos.length);
   if(remaining<=0){showPopup('📷','사진 최대 5장','여행당 최대 5장까지 추가할 수 있어요.');return;}
   const toLoad=Array.from(files).slice(0,remaining);
@@ -4354,7 +4421,7 @@ function handlePhotoUpload(event){
     const failed=results.length-ok.length;
     // 날짜가 비어 있던 여행이면 사진 촬영일로 채운다
     const filled = hadNoDate ? fillTripDatesFromPhotos(t, photoDates) : null;
-    if(ok.length){ save(); renderTrips(); openTripDetail(tripIdx); }
+    if(ok.length){ syncPhotos(t); save(); renderTrips(); openTripDetail(tripIdx); }
     if(filled){
       const range = (filled.start===filled.end) ? filled.start : (filled.start+' ~ '+filled.end);
       showPopup('📅','사진 날짜로 채웠어요', range+'\n다르면 여행을 열어 수정할 수 있어요.');
@@ -4367,6 +4434,7 @@ function handlePhotoUpload(event){
 }
 function deleteTripPhoto(tripIdx,photoIdx){
   S.trips[tripIdx].photos.splice(photoIdx,1);
+  syncPhotos(S.trips[tripIdx]);
   save();renderTrips();openTripDetail(tripIdx);
 }
 function openPhotoFull(src){
