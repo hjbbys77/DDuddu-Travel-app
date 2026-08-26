@@ -420,6 +420,10 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
 
 <!-- MAP TAB -->
 <div class="pg" id="pg-map">
+  <div id="recordModeBanner" style="display:none;align-items:center;justify-content:space-between;gap:8px;background:var(--pkd);color:#fff;padding:10px 14px;border-radius:12px;margin-bottom:8px;font-family:'Uiyeon',sans-serif;">
+    <span style="font-size:13px;">🐾 기록할 지역을 눌러주세요</span>
+    <button onclick="cancelRecordMode()" style="background:rgba(255,255,255,.25);color:#fff;border:none;border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer;font-family:'Uiyeon',sans-serif;">취소</button>
+  </div>
   <div class="map-container pbox">
     <div class="map-hdr">
       <span class="map-label">내 여행 지도 — 클릭해서 색칠하기</span>
@@ -630,6 +634,10 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
           </div>
         </div>
       </div>
+      <div class="fg" style="grid-column:1/-1;margin-bottom:12px;">
+        <div class="flbl">누구와 갔나요?</div>
+        <div id="addWithChips" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
       <div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--pkl);display:flex;align-items:center;justify-content:space-between;">
         <span style="font-size:14px;color:var(--pkdr);">🚂 일정</span>
         <button class="itinerary-toggle" id="addItineraryToggle" onclick="toggleAddItinerary()">＋ 일정 추가 (나중에도 가능)</button>
@@ -655,6 +663,17 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
 </div>
 
 
+<!-- 지역 정보 (지도 클릭) -->
+<div class="modal-bg" id="regionInfo" style="z-index:640;align-items:center;">
+  <div style="background:#fff;border-radius:16px;padding:20px;max-width:340px;width:100%;border:2px solid var(--pkk);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-size:18px;color:var(--pkdr);" id="regionInfoTitle">📍</div>
+      <button class="modal-close" onclick="closeRegionInfo()">✕</button>
+    </div>
+    <div id="regionInfoBody" style="max-height:50vh;overflow-y:auto;"></div>
+  </div>
+</div>
+
 <!-- 여행 기록 방법 선택 -->
 <div class="modal-bg" id="addChooser" style="z-index:650;align-items:center;">
   <div style="background:#fff;border-radius:16px;padding:22px;max-width:360px;width:100%;border:2px solid var(--pkk);">
@@ -667,11 +686,6 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
     <button onclick="chooseAddWay('map')" style="width:100%;display:flex;align-items:center;gap:12px;text-align:left;padding:14px;margin-bottom:8px;border:2px solid var(--pkl);background:#fff;border-radius:12px;cursor:pointer;font-family:'Uiyeon',sans-serif;">
       <span style="font-size:26px;">🗺</span>
       <span><span style="font-size:14px;color:var(--tx);">지도에서 고르기</span><br><span style="font-size:11px;color:var(--txl);">다녀온 곳을 눌러 색칠하며 기록해요</span></span>
-    </button>
-
-    <button onclick="chooseAddWay('manual')" style="width:100%;display:flex;align-items:center;gap:12px;text-align:left;padding:14px;margin-bottom:8px;border:2px solid var(--pkl);background:#fff;border-radius:12px;cursor:pointer;font-family:'Uiyeon',sans-serif;">
-      <span style="font-size:26px;">✍️</span>
-      <span><span style="font-size:14px;color:var(--tx);">직접 입력하기</span><br><span style="font-size:11px;color:var(--txl);">도시 이름을 검색해서 바로 적어요</span></span>
     </button>
 
     <button onclick="chooseAddWay('photo')" style="width:100%;display:flex;align-items:center;gap:12px;text-align:left;padding:14px;border:2px solid var(--pkl);background:#fff;border-radius:12px;cursor:pointer;font-family:'Uiyeon',sans-serif;">
@@ -2255,7 +2269,57 @@ function toggleSigungu(code,name){
     label:isMetro?name:(sido+' '+name),
     isMetro
   };
-  openAddTripModal(loc);
+  if(mapRecordMode){
+    mapRecordMode=false;
+    updateRecordModeBanner();
+    openAddTripModal(loc);
+  } else {
+    showRegionInfo(loc);
+  }
+}
+
+// 지도는 기본적으로 '다녀온 곳을 보는' 화면이다.
+// 여행 탭의 ＋ 여행 기록 > 지도에서 고르기 로 들어왔을 때만 기록 모드가 켜진다.
+let mapRecordMode=false;
+function updateRecordModeBanner(){
+  const b=document.getElementById('recordModeBanner');
+  if(b) b.style.display = mapRecordMode ? 'flex' : 'none';
+}
+function cancelRecordMode(){
+  mapRecordMode=false;
+  updateRecordModeBanner();
+}
+// 그 지역을 언제 누구와 갔는지 보여준다
+function showRegionInfo(loc){
+  const key = loc.type==='wd' ? loc.iso : loc.code;
+  const name = loc.label || loc.name || '';
+  const visits = (S.trips||[]).filter(function(t){
+    const ll = (t.locs&&t.locs.length) ? t.locs : (t.loc?[t.loc]:[]);
+    return ll.some(function(l){ return l && (l.type==='wd' ? l.iso===key : l.code===key); });
+  }).sort(function(a,b){
+    const da=a.start||a.end||'', db=b.start||b.end||'';
+    return db<da ? -1 : (db>da ? 1 : 0);
+  });
+  const body=document.getElementById('regionInfoBody');
+  document.getElementById('regionInfoTitle').textContent='📍 '+name;
+  if(!visits.length){
+    body.innerHTML='<div style="text-align:center;padding:20px 0;color:var(--txl);font-size:13px;">아직 다녀오지 않은 곳이에요 🐾<br><span style="font-size:12px;">여행 탭에서 기록할 수 있어요</span></div>';
+  } else {
+    body.innerHTML=
+      '<div style="font-size:14px;color:var(--pkdr);margin-bottom:10px;">방문 '+visits.length+'회</div>'+
+      visits.map(function(t){
+        const w=withInfo(t.with);
+        const ym=shortYm(t.start||t.end);
+        return '<div style="display:flex;align-items:center;gap:8px;padding:9px 10px;margin-bottom:6px;background:var(--pkp);border-radius:10px;">'+
+          '<span style="font-size:13px;color:var(--tx);min-width:64px;">'+(ym||'날짜 미정')+'</span>'+
+          '<span style="font-size:13px;color:var(--txm);flex:1;">'+(w ? w.icon+' '+w.with : '<span style="color:var(--txl);">동행 미기록</span>')+'</span>'+
+          '</div>';
+      }).join('');
+  }
+  document.getElementById('regionInfo').style.display='flex';
+}
+function closeRegionInfo(){
+  document.getElementById('regionInfo').style.display='none';
 }
 
 // [4] 방문 횟수별 색상 (클수록 진해짐)
@@ -2565,7 +2629,13 @@ function switchContinent(cont,btn){
 // [5] 해외 나라 클릭 → 여행 기록 모달
 function toggleCountry(iso){
   const loc={type:'wd',iso,name:ISO_KR[iso]||iso,label:ISO_KR[iso]||iso};
-  openAddTripModal(loc);
+  if(mapRecordMode){
+    mapRecordMode=false;
+    updateRecordModeBanner();
+    openAddTripModal(loc);
+  } else {
+    showRegionInfo(loc);
+  }
 }
 function removeLocItem(type,id,el){
   if(type==='kr'){const idx=S.visitedCodes.indexOf(id);if(idx!==-1)S.visitedCodes.splice(idx,1);document.querySelectorAll(`[id^="sg-${id}"]`).forEach(e=>e.classList.remove('visited'));}
@@ -2773,6 +2843,22 @@ function renderCurve(id){
 let addTripLoc=null;
 let addTripLocs=[];
 
+let addTripWith='';
+function renderWithChips(){
+  const el=document.getElementById('addWithChips');
+  if(!el) return;
+  el.innerHTML=WITH_OPTIONS.map(function(o){
+    const on = addTripWith===o.key;
+    return '<button type="button" onclick="selectAddWith(\''+o.key+'\')" style="padding:8px 12px;border-radius:20px;cursor:pointer;font-family:\'Uiyeon\',sans-serif;font-size:13px;'+
+      (on ? 'border:2px solid var(--pkd);background:var(--pkl);color:var(--pkdr);' : 'border:2px solid var(--pkl);background:#fff;color:var(--txm);')+
+      '">'+o.icon+' '+o.label+'</button>';
+  }).join('');
+}
+function selectAddWith(key){
+  addTripWith = (addTripWith===key) ? '' : key;   // 한 번 더 누르면 해제
+  renderWithChips();
+}
+
 function openAddTripModal(loc){
   addTripLoc=loc;
   addTripLocs=loc?[loc]:[];
@@ -2787,6 +2873,7 @@ function openAddTripModal(loc){
   if(eEl) eEl.value='';
   const _lbl=document.getElementById('dateRangeLabel');
   if(_lbl) _lbl.textContent='날짜 선택';
+  addTripWith=''; renderWithChips();
   dayCount=0; dayPlaces={};
   const dw=document.getElementById('addDaysWrap');
   if(dw) dw.innerHTML='';
@@ -2831,7 +2918,7 @@ function saveAddTrip(){
       if(el) el.style.fill=getVisitColorWd(S.visitCounts[iso]);
     }
   });
-  S.trips.unshift({id:Date.now(),title,start:document.getElementById('addFStart').value,end:document.getElementById('addFEnd').value,days,loc:locsToSave[0]||null,locs:locsToSave});
+  S.trips.unshift({id:Date.now(),title,with:addTripWith,start:document.getElementById('addFStart').value,end:document.getElementById('addFEnd').value,days,loc:locsToSave[0]||null,locs:locsToSave});
   addXP(TRIP_XP,'여행 기록',TRIP_CHARGES);
   save(); renderStats(); checkMissions();
   closeAddTripModal();
@@ -3077,6 +3164,7 @@ function renderTrips(){
         </div>
         <div class="trip-card-tags">
           ${(()=>{const ll=t.locs&&t.locs.length?t.locs:(t.loc?[t.loc]:[]);return ll.map(l=>`<span class="trip-tag" style="background:#fff0f8;color:var(--pkdr);">📍${l.label||l.name||''}</span>`).join('');})()}
+          ${(function(){const w=withInfo(t.with);return w?`<span class="trip-tag" style="background:#fff8f0;color:var(--txm);">${w.icon} ${w.label}</span>`:'';})()}
           ${dc>0?`<span class="trip-tag">📅 ${dc}일 일정</span>`:''}
           ${tp>0?`<span class="trip-tag">🗺️ ${tp}곳</span>`:''}
           ${!dc?`<span class="trip-tag" style="cursor:pointer;background:var(--pkp);color:var(--pkdr);" onclick="event.stopPropagation();openTripEdit(${i})">＋ 일정 추가</span>`:''}
@@ -3336,10 +3424,9 @@ function closeAddChooser(){
 function chooseAddWay(way){
   closeAddChooser();
   if(way==='map'){
+    mapRecordMode=true;
     nav('map', document.querySelectorAll('.bnav-btn')[1]);
-    showTipMsg('다녀온 지역을 눌러보세요 🐾');
-  } else if(way==='manual'){
-    openAddTripModal(null);
+    updateRecordModeBanner();
   } else if(way==='photo'){
     triggerExifUpload();
   }
@@ -3982,6 +4069,26 @@ function removeSavedTrip(idx){
 }
 
 // ===== UTILS =====
+// ===== 동행자 =====
+const WITH_OPTIONS = [
+  {key:'solo',     icon:'🧍', label:'혼자',     with:'혼자'},
+  {key:'partner',  icon:'💕', label:'애인',     with:'애인과'},
+  {key:'family',   icon:'👨‍👩‍👧', label:'가족',     with:'가족과'},
+  {key:'friend',   icon:'👯', label:'친구',     with:'친구와'},
+  {key:'business', icon:'💼', label:'비즈니스', with:'비즈니스로'}
+];
+function withInfo(key){
+  for(let i=0;i<WITH_OPTIONS.length;i++){ if(WITH_OPTIONS[i].key===key) return WITH_OPTIONS[i]; }
+  return null;
+}
+// "26년 5월" 형태
+function shortYm(dateStr){
+  if(!dateStr) return '';
+  const m=String(dateStr).match(/^(\d{4})-(\d{2})/);
+  if(!m) return '';
+  return m[1].slice(2)+'년 '+parseInt(m[2],10)+'월';
+}
+
 // ===== 탭별 첫 진입 안내 =====
 // 기능이 많아 처음 온 사람이 헤매기 쉬워서, 각 탭을 처음 열 때 한 번만 알려준다.
 // 본 적 있는 탭은 S.seenTabs에 기록되고 계정에 저장되므로 기기를 바꿔도 다시 뜨지 않는다.
