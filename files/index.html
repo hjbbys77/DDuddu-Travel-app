@@ -488,6 +488,16 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
   <div class="trips-wrap pbox">
     <div style="font-size:16px;color:var(--pkdr);margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid var(--pkl);">👥 친구 여행</div>
 
+    <!-- 내 코드 -->
+    <div class="pbox-sm" style="margin-bottom:12px;background:var(--pkp);border:2px solid var(--pkk);">
+      <div style="font-size:14px;color:var(--pkdr);font-weight:bold;margin-bottom:8px;">🔑 내 코드</div>
+      <div style="font-size:12px;color:var(--txl);margin-bottom:8px;">이 코드를 친구에게 알려주면 서로의 여행을 볼 수 있어요.</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <div id="myCodeBox" style="flex:1;font-size:20px;letter-spacing:3px;color:var(--pkd);background:#fff;border:2px solid var(--pkl);border-radius:10px;padding:10px 12px;text-align:center;">-</div>
+        <button id="myCodeCopyBtn" onclick="copyMyCode()" style="background:var(--pkd);color:#fff;border:none;border-radius:10px;padding:12px 14px;font-size:13px;cursor:pointer;font-family:'Uiyeon',sans-serif;white-space:nowrap;">📋 복사</button>
+      </div>
+    </div>
+
     <!-- 코드 검색 -->
     <div class="pbox-sm" style="margin-bottom:12px;background:#fff8f0;border:2px solid var(--pkl);">
       <div style="font-size:14px;color:var(--pkdr);font-weight:bold;margin-bottom:8px;">🔍 친구 코드 검색</div>
@@ -3880,7 +3890,26 @@ function saveFriendTrip(fromName,fromCode,tripIdx){
   renderFriendsTab();
 }
 
+function copyMyCode(){
+  if(!S.myCode) return;
+  const btn=document.getElementById('myCodeCopyBtn');
+  const done=function(){
+    if(!btn) return;
+    const old=btn.textContent;
+    btn.textContent='✅ 복사됨';
+    setTimeout(function(){ btn.textContent=old; }, 1500);
+  };
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(S.myCode).then(done).catch(function(){ alert('내 코드: '+S.myCode); });
+  } else {
+    alert('내 코드: '+S.myCode);
+  }
+}
 function renderFriendsTab(){
+  // 내 코드 (없으면 만들어 둔다)
+  if(!S.myCode && S.name){ S.myCode=genCode(S.name); save(); }
+  const codeBox=document.getElementById('myCodeBox');
+  if(codeBox) codeBox.textContent=S.myCode||'-';
   // 친구 목록
   const friendsEl=document.getElementById('friendsList');
   if(friendsEl){
@@ -3980,7 +4009,7 @@ const TAB_GUIDE = {
   friends: {
     icon: '👥',
     title: '친구와 여행을 나눠요',
-    msg: '내 코드를 알려주고 친구 코드를 넣으면\n서로의 여행을 볼 수 있어요.\n\n마음에 드는 여행은 내 기록으로\n담아둘 수도 있어요.'
+    msg: '맨 위 🔑 내 코드 를 친구에게 알려주고,\n친구 코드를 검색창에 넣으면 서로의\n여행을 볼 수 있어요.\n\n마음에 드는 여행은 내 기록으로\n담아둘 수도 있어요.'
   }
 };
 function maybeShowTabGuide(p){
