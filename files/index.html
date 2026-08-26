@@ -539,6 +539,7 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
 
 <input type="file" id="photoFileInput" accept="image/*" multiple style="display:none" onchange="handlePhotoUpload(event)"/>
 <input type="file" id="exifPhotoInput" accept="image/*" multiple style="display:none" onchange="handleExifPhotos(event)"/>
+<input type="file" id="addTripPhotoInput" accept="image/*" multiple style="display:none" onchange="handleAddTripPhoto(event)"/>
 <!-- TRIP DETAIL MODAL -->
 <div class="modal-bg" id="tripModal">
   <div class="modal-inner pbox">
@@ -582,10 +583,7 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
       <div style="margin-bottom:12px;">
         <div class="flbl">📍 여행지 <span style="font-size:11px;color:var(--txl);">(여러 곳 추가 가능)</span></div>
         <div id="tripLocChips" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;min-height:28px;"></div>
-        <div style="position:relative;">
-          <input id="tripLocSearch" class="fi" placeholder="🔍 도시/지역 검색 (예: 제주, 강릉...)" oninput="searchTripLoc(this.value)" style="width:100%;padding:9px 12px;font-size:14px;border-radius:10px;border:2px solid var(--pkk);background:#fff;box-sizing:border-box;font-family:'Uiyeon',sans-serif;"/>
-          <div id="tripLocResults" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:2px solid var(--pkk);border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,.1);max-height:140px;overflow-y:auto;z-index:100;margin-top:2px;"></div>
-        </div>
+        <button type="button" onclick="addLocFromMap()" style="width:100%;padding:11px;border:2px dashed var(--pkd);background:#fff;color:var(--pkd);border-radius:10px;cursor:pointer;font-family:'Uiyeon',sans-serif;font-size:13px;">🗺 지도에서 여행지 추가</button>
       </div>
       <div class="frow">
         <div class="fg" style="grid-column:1/-1"><div class="flbl">여행 제목</div><input class="fi" id="addFTitle" placeholder="제주도 봄 여행"/></div>
@@ -638,6 +636,11 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
         <div class="flbl">누구와 갔나요?</div>
         <div id="addWithChips" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
       </div>
+      <div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--pkl);display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:14px;color:var(--pkdr);">📷 사진</span>
+        <button class="itinerary-toggle" type="button" onclick="triggerAddTripPhoto()">＋ 사진 추가 (선택)</button>
+      </div>
+      <div id="addTripPhotos" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;"></div>
       <div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--pkl);display:flex;align-items:center;justify-content:space-between;">
         <span style="font-size:14px;color:var(--pkdr);">🚂 일정</span>
         <button class="itinerary-toggle" id="addItineraryToggle" onclick="toggleAddItinerary()">＋ 일정 추가 (나중에도 가능)</button>
@@ -2269,7 +2272,9 @@ function toggleSigungu(code,name){
     label:isMetro?name:(sido+' '+name),
     isMetro
   };
-  if(mapRecordMode){
+  if(mapAddLocMode){
+    acceptLocFromMap(loc);
+  } else if(mapRecordMode){
     mapRecordMode=false;
     updateRecordModeBanner();
     openAddTripModal(loc);
@@ -2281,13 +2286,35 @@ function toggleSigungu(code,name){
 // 지도는 기본적으로 '다녀온 곳을 보는' 화면이다.
 // 여행 탭의 ＋ 여행 기록 > 지도에서 고르기 로 들어왔을 때만 기록 모드가 켜진다.
 let mapRecordMode=false;
+// 모달을 연 채로 여행지를 더 고르러 지도에 다녀오는 모드.
+// 모달 상태(제목·날짜·동행·사진)를 유지해야 하므로 openAddTripModal을 다시 부르지 않는다.
+let mapAddLocMode=false;
+function addLocFromMap(){
+  mapAddLocMode=true;
+  document.getElementById('addTripModal').classList.remove('show');
+  nav('map', document.querySelectorAll('.bnav-btn')[1]);
+  updateRecordModeBanner();
+}
+function acceptLocFromMap(loc){
+  mapAddLocMode=false;
+  updateRecordModeBanner();
+  const key = loc.type==='wd' ? loc.iso : loc.code;
+  const dup = addTripLocs.some(function(l){ return (l.type==='wd'?l.iso:l.code)===key; });
+  if(!dup){ addTripLocs.push(loc); if(!addTripLoc) addTripLoc=loc; }
+  renderTripLocChips();
+  document.getElementById('addTripModal').classList.add('show');
+  if(dup) showTipMsg('이미 추가한 여행지예요');
+}
 function updateRecordModeBanner(){
   const b=document.getElementById('recordModeBanner');
-  if(b) b.style.display = mapRecordMode ? 'flex' : 'none';
+  if(b) b.style.display = (mapRecordMode||mapAddLocMode) ? 'flex' : 'none';
 }
 function cancelRecordMode(){
-  mapRecordMode=false;
+  const wasAdding = mapAddLocMode;
+  mapRecordMode=false; mapAddLocMode=false;
   updateRecordModeBanner();
+  // 여행지를 더 고르러 왔던 경우라면 쓰던 모달로 돌려보낸다
+  if(wasAdding) document.getElementById('addTripModal').classList.add('show');
 }
 // 그 지역을 언제 누구와 갔는지 보여준다
 function showRegionInfo(loc){
@@ -2629,6 +2656,7 @@ function switchContinent(cont,btn){
 // [5] 해외 나라 클릭 → 여행 기록 모달
 function toggleCountry(iso){
   const loc={type:'wd',iso,name:ISO_KR[iso]||iso,label:ISO_KR[iso]||iso};
+  if(mapAddLocMode){ acceptLocFromMap(loc); return; }
   if(mapRecordMode){
     mapRecordMode=false;
     updateRecordModeBanner();
@@ -2844,6 +2872,50 @@ let addTripLoc=null;
 let addTripLocs=[];
 
 let addTripWith='';
+let addTripPhotos=[];
+function triggerAddTripPhoto(){
+  if(addTripPhotos.length>=5){ showPhotoFullMsg(); return; }
+  document.getElementById('addTripPhotoInput').click();
+}
+function renderAddTripPhotos(){
+  const el=document.getElementById('addTripPhotos');
+  if(!el) return;
+  el.innerHTML=addTripPhotos.map(function(src,i){
+    return '<div style="position:relative;">'+
+      '<img src="'+src+'" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:2px solid var(--pkl);">'+
+      '<button type="button" onclick="removeAddTripPhoto('+i+')" style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;border:none;background:var(--pkdr);color:#fff;font-size:11px;cursor:pointer;line-height:1;">✕</button>'+
+      '</div>';
+  }).join('') + (addTripPhotos.length ? '<span style="align-self:center;font-size:11px;color:var(--txl);margin-left:4px;">'+addTripPhotos.length+'/5</span>' : '');
+}
+function removeAddTripPhoto(i){
+  addTripPhotos.splice(i,1);
+  renderAddTripPhotos();
+}
+async function handleAddTripPhoto(event){
+  const files=Array.from(event.target.files);
+  event.target.value='';
+  if(!files.length) return;
+  const room=5-addTripPhotos.length;
+  if(room<=0){ showPhotoFullMsg(); return; }
+  const toLoad=files.slice(0,room);
+  if(files.length>room) showPopup('📷', room+'장만 추가됩니다', '사진은 여행당 최대 5장까지예요.');
+  const both=await Promise.all([
+    Promise.all(toLoad.map(function(f){ return compressPhoto(f); })),
+    Promise.all(toLoad.map(function(f){ return extractPhotoDateOnly(f); }))
+  ]);
+  both[0].filter(Boolean).forEach(function(c){ addTripPhotos.push(c); });
+  renderAddTripPhotos();
+  // 날짜를 아직 안 정했으면 사진 촬영일로 채워준다
+  const sEl=document.getElementById('addFStart'), eEl=document.getElementById('addFEnd');
+  const dates=both[1].filter(Boolean).sort();
+  if(dates.length && !sEl.value && !eEl.value){
+    sEl.value=dates[0]; eEl.value=dates[dates.length-1];
+    _calStart=sEl.value; _calEnd=eEl.value;
+    const lbl=document.getElementById('dateRangeLabel');
+    if(lbl) lbl.textContent = (sEl.value===eEl.value) ? sEl.value : (sEl.value+' ~ '+eEl.value);
+    showTipMsg('사진 날짜로 여행 기간을 채웠어요 📅');
+  }
+}
 function renderWithChips(){
   const el=document.getElementById('addWithChips');
   if(!el) return;
@@ -2874,6 +2946,7 @@ function openAddTripModal(loc){
   const _lbl=document.getElementById('dateRangeLabel');
   if(_lbl) _lbl.textContent='날짜 선택';
   addTripWith=''; renderWithChips();
+  addTripPhotos=[]; renderAddTripPhotos();
   dayCount=0; dayPlaces={};
   const dw=document.getElementById('addDaysWrap');
   if(dw) dw.innerHTML='';
@@ -2918,7 +2991,7 @@ function saveAddTrip(){
       if(el) el.style.fill=getVisitColorWd(S.visitCounts[iso]);
     }
   });
-  S.trips.unshift({id:Date.now(),title,with:addTripWith,start:document.getElementById('addFStart').value,end:document.getElementById('addFEnd').value,days,loc:locsToSave[0]||null,locs:locsToSave});
+  S.trips.unshift({id:Date.now(),title,with:addTripWith,photos:addTripPhotos.slice(0,5),start:document.getElementById('addFStart').value,end:document.getElementById('addFEnd').value,days,loc:locsToSave[0]||null,locs:locsToSave});
   addXP(TRIP_XP,'여행 기록',TRIP_CHARGES);
   save(); renderStats(); checkMissions();
   closeAddTripModal();
