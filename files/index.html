@@ -234,7 +234,7 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
 @keyframes popIn{from{transform:scale(.5);opacity:0}to{transform:scale(1);opacity:1}}
 .popup-star{font-size:44px;display:block;margin-bottom:8px;}
 .popup-title{font-size:20px;color:var(--pkdr);margin-bottom:8px;}
-.popup-msg{font-size:14px;color:var(--txm);margin-bottom:18px;line-height:1.7;}
+.popup-msg{font-size:14px;color:var(--txm);margin-bottom:18px;line-height:1.7;white-space:pre-line;}
 .popup-btn{padding:10px 28px;background:var(--pkd);color:#fff;border:3px solid var(--pkk);box-shadow:3px 3px 0 var(--pkk);font-size:14px;cursor:pointer;font-family:'Uiyeon',sans-serif;}
 /* ONBOARDING */
 #onboarding{display:none;position:fixed;inset:0;background:var(--cr);z-index:500;background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:20px 20px;align-items:center;justify-content:center;}
@@ -648,6 +648,9 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
     <div style="font-size:13px;color:var(--txm);margin-bottom:6px;">🔧 이전 데이터 복구</div>
     <div style="font-size:11px;color:var(--txl);margin-bottom:6px;line-height:1.6;">예전 버전에서 이 기기에 저장된 여행이 있다면 합쳐줍니다.</div>
     <button onclick="recoverFromLocalStorage()" style="width:100%;padding:9px;margin-bottom:18px;font-size:13px;border:1.5px solid var(--pkd);background:#fff;color:var(--pkd);border-radius:8px;cursor:pointer;font-family:'Uiyeon',sans-serif;">이 기기에서 찾아보기</button>
+
+    <div style="font-size:13px;color:var(--txm);margin-bottom:6px;">💡 사용 안내</div>
+    <button onclick="resetTabGuide()" style="width:100%;padding:9px;margin-bottom:18px;font-size:13px;border:1.5px solid var(--pkd);background:#fff;color:var(--pkd);border-radius:8px;cursor:pointer;font-family:'Uiyeon',sans-serif;">탭 안내 다시 보기</button>
 
     <div style="font-size:13px;color:var(--txm);margin-bottom:6px;">📄 약관</div>
     <div style="display:flex;gap:8px;margin-bottom:18px;">
@@ -1412,6 +1415,7 @@ async function startApp(){
   startPetWalk();
   renderStats();
   setTimeout(function(){ refreshMapColors(); }, 100);
+  maybeShowTabGuide('home');
 }
 
 // ===== 약관 본문 =====
@@ -3821,6 +3825,56 @@ function removeSavedTrip(idx){
 }
 
 // ===== UTILS =====
+// ===== 탭별 첫 진입 안내 =====
+// 기능이 많아 처음 온 사람이 헤매기 쉬워서, 각 탭을 처음 열 때 한 번만 알려준다.
+// 본 적 있는 탭은 S.seenTabs에 기록되고 계정에 저장되므로 기기를 바꿔도 다시 뜨지 않는다.
+const TAB_GUIDE = {
+  home: {
+    icon: '🐾',
+    title: '여기가 홈이에요',
+    msg: '지금까지의 여행 기록이 한눈에 보여요.\n\n여행을 기록할수록 친구가 성장하고,\n밥·공놀이·산책으로 애정도를 올릴 수 있어요.'
+  },
+  map: {
+    icon: '🗺',
+    title: '다녀온 곳을 색칠해요',
+    msg: '지도에서 다녀온 지역을 누르면\n여행이 기록되고 그 자리가 칠해져요.\n\n여러 번 갈수록 색이 진해지고,\n위쪽에서 국내·해외를 바꿀 수 있어요.'
+  },
+  trips: {
+    icon: '📖',
+    title: '여행 기록을 모아둬요',
+    msg: '기록한 여행이 모두 여기 쌓여요.\n\n사진을 넣으면 찍은 날짜로 여행 날짜가\n자동으로 채워지고, 하루하루 일정도\n적어둘 수 있어요.'
+  },
+  missions: {
+    icon: '⭐',
+    title: '미션에 도전해보세요',
+    msg: '도별·대륙별로 얼마나 다녀왔는지\n달성률이 보여요.\n\n미션을 깨면 친구에게 줄 간식이\n늘어나요.'
+  },
+  friends: {
+    icon: '👥',
+    title: '친구와 여행을 나눠요',
+    msg: '내 코드를 알려주고 친구 코드를 넣으면\n서로의 여행을 볼 수 있어요.\n\n마음에 드는 여행은 내 기록으로\n담아둘 수도 있어요.'
+  }
+};
+function maybeShowTabGuide(p){
+  if(!S.name) return;                       // 로그인 전에는 띄우지 않는다
+  const g = TAB_GUIDE[p];
+  if(!g) return;
+  S.seenTabs = S.seenTabs || {};
+  if(S.seenTabs[p]) return;
+  S.seenTabs[p] = true;
+  save();
+  // 탭 전환 애니메이션이 끝난 뒤에 띄워야 덜 튄다
+  setTimeout(function(){ showPopup(g.icon, g.title, g.msg); }, 350);
+}
+// 설정에서 다시 볼 수 있게
+function resetTabGuide(){
+  if(!confirm('탭 안내를 처음부터 다시 볼까요?')) return;
+  S.seenTabs = {};
+  save();
+  closeBackupPopup();
+  alert('각 탭을 열면 안내가 다시 나와요 🐾');
+}
+
 function nav(p,btn){
   document.querySelectorAll('.pg').forEach(x=>x.classList.remove('on'));
   document.querySelectorAll('.bnav-btn').forEach(x=>x.classList.remove('on'));
@@ -3837,6 +3891,7 @@ function nav(p,btn){
   if(p==='missions') renderMissions();
   if(p==='trips') renderTrips();
   if(p==='friends') renderFriendsTab();
+  maybeShowTabGuide(p);
   if(p==='map'){
     refreshMapColors();
     requestAnimationFrame(()=>requestAnimationFrame(()=>{
