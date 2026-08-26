@@ -331,6 +331,18 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
     <!-- 에러 -->
     <div id="onboardErr" style="text-align:center;font-size:12px;color:#e05;margin-bottom:10px;min-height:16px;"></div>
 
+    <!-- 약관 동의 (신규 가입 시에만 노출) -->
+    <div id="agreeWrap" style="margin-bottom:14px;">
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--txm);cursor:pointer;line-height:1.6;">
+        <input type="checkbox" id="chkAgree" onchange="checkStartReady()" style="margin-top:2px;flex-shrink:0;"/>
+        <span>만 14세 이상이며,
+          <a href="#" onclick="showPolicy('terms');return false;" style="color:var(--pkd);text-decoration:underline;">이용약관</a>과
+          <a href="#" onclick="showPolicy('privacy');return false;" style="color:var(--pkd);text-decoration:underline;">개인정보처리방침</a>에
+          동의합니다. <span style="color:var(--pkdr);">(필수)</span>
+        </span>
+      </label>
+    </div>
+
     <!-- 자동로그인 -->
     <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:13px;color:var(--txm);cursor:pointer;">
       <input type="checkbox" id="chkAutoLogin" style="width:16px;height:16px;accent-color:var(--pkd);">
@@ -653,10 +665,11 @@ body{font-family:'Uiyeon',sans-serif;color:var(--tx);margin:0;padding:0;min-heig
     <button onclick="resetTabGuide()" style="width:100%;padding:9px;margin-bottom:18px;font-size:13px;border:1.5px solid var(--pkd);background:#fff;color:var(--pkd);border-radius:8px;cursor:pointer;font-family:'Uiyeon',sans-serif;">탭 안내 다시 보기</button>
 
     <div style="font-size:13px;color:var(--txm);margin-bottom:6px;">📄 약관</div>
-    <div style="display:flex;gap:8px;margin-bottom:18px;">
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
       <button onclick="showPolicy('privacy')" style="flex:1;padding:9px;font-size:12px;border:1.5px solid var(--pkl);background:#fff;color:var(--txm);border-radius:8px;cursor:pointer;font-family:'Uiyeon',sans-serif;">개인정보처리방침</button>
       <button onclick="showPolicy('terms')" style="flex:1;padding:9px;font-size:12px;border:1.5px solid var(--pkl);background:#fff;color:var(--txm);border-radius:8px;cursor:pointer;font-family:'Uiyeon',sans-serif;">이용약관</button>
     </div>
+    <div id="agreeInfo" style="font-size:11px;color:var(--txl);margin-bottom:18px;line-height:1.6;"></div>
 
     <div style="border-top:2px solid #ffe4ec;padding-top:14px;">
       <div style="font-size:13px;color:#c0446a;margin-bottom:6px;">⚠️ 계정 삭제</div>
@@ -1297,7 +1310,12 @@ function checkStartReady(){
   const name=document.getElementById('onboardName').value.trim();
   const pwd=document.getElementById('onboardPwd').value;
   const btn=document.getElementById('startBtn');
-  if(name&&pwd){btn.style.opacity='1';btn.style.pointerEvents='auto';}
+  // 신규 가입(동의 영역이 보이는 상태)이면 약관 동의도 있어야 시작할 수 있다
+  const ag=document.getElementById('agreeWrap');
+  const chk=document.getElementById('chkAgree');
+  const needAgree = ag && ag.style.display!=='none';
+  const agreed = !needAgree || (chk && chk.checked);
+  if(name&&pwd&&agreed){btn.style.opacity='1';btn.style.pointerEvents='auto';}
   else{btn.style.opacity='0.5';btn.style.pointerEvents='none';}
 }
 // 입력이 멈춘 뒤에만 조회한다 (한글 조합 중 매 글자마다 요청이 나가던 문제)
@@ -1317,17 +1335,22 @@ async function checkUserExists(){
   // 이 응답을 기다리는 동안 더 최근 입력이 있었다면 결과를 버린다.
   // (예전에는 늦게 도착한 이전 글자의 응답이 화면을 덮어썼다)
   if(seq!==_nameCheckSeq) return;
+  const ag=document.getElementById('agreeWrap');
   if(row){
     hint.textContent='🐾 기존 계정이 있어요 — 비밀번호를 입력해주세요';
     if(cp) cp.style.display='none';
+    if(ag) ag.style.display='none';        // 이미 가입할 때 동의한 사용자
   } else if(_dbLastError){
     // 서버에 닿지 못한 것이지 계정이 없는 게 아니다
     hint.textContent='⚠️ 서버에 연결할 수 없어요 — 잠시 후 다시 시도해주세요';
     if(cp) cp.style.display='none';
+    if(ag) ag.style.display='none';
   } else {
     hint.textContent='✨ 새 계정을 만들어요 — 캐릭터도 골라주세요!';
     if(cp) cp.style.display='';
+    if(ag) ag.style.display='';
   }
+  checkStartReady();
 }
 async function startApp(){
   const name=document.getElementById('onboardName').value.trim();
@@ -1378,11 +1401,20 @@ async function startApp(){
       });
     } else {
       // 신규 유저
+      const chk=document.getElementById('chkAgree');
+      if(!chk||!chk.checked){
+        if(errEl)errEl.textContent='약관에 동의해주세요';
+        if(btn){ btn.style.opacity='1'; btn.textContent='시작하기'; btn.style.pointerEvents='auto'; }
+        return;
+      }
       if(!selectedPet){
         if(errEl)errEl.textContent='캐릭터를 선택해주세요 🐾';
         if(btn){ btn.style.opacity='1'; btn.textContent='시작하기'; btn.style.pointerEvents='auto'; }
         return;
       }
+      // 동의 이력 (분쟁 시 언제·어떤 버전에 동의했는지 확인용)
+      S.agreedAt = new Date().toISOString();
+      S.agreedPolicyVersion = POLICY_UPDATED;
       S.name=name; S.pet=selectedPet; S._pwd=await credFor(pwd); S._pwdNext=S._pwd;
       S.myCode=genCode(name);
       S.friends=[];
@@ -1578,6 +1610,12 @@ function showBackupPopup(){
     textarea.value = JSON.stringify(sanitizeState(S));   // 비밀번호는 내보내지 않는다
   }
   document.getElementById('importTextarea').value = '';
+  const ai = document.getElementById('agreeInfo');
+  if(ai){
+    ai.textContent = S.agreedAt
+      ? '동의 일시: ' + String(S.agreedAt).slice(0,10) + ' (방침 ' + (S.agreedPolicyVersion||'-') + ')'
+      : '';
+  }
   popup.style.display = 'flex';
 }
 function showDiagnostics(){
