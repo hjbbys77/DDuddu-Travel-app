@@ -3119,6 +3119,12 @@ function rebuildVisitData(){
       }
     });
   });
+  // 국내 여행이 하나라도 있으면 세계지도에서도 한국을 칠한다.
+  // (한국 여행을 따로 '해외 기록'으로 남기는 사람은 없으므로)
+  if(S.visitedCodes.length && !S.visitedISO.includes('KR')){
+    S.visitedISO.push('KR');
+    if(!S.visitCounts['KR']) S.visitCounts['KR']=S.visitedCodes.length;
+  }
 }
 // 여행 삭제
 function editTripTitle(idx){
