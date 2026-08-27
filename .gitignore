@@ -12,3 +12,16 @@
 
 # Claude Code 로컬 설정
 .claude/
+
+# 빌드 산출물
+node_modules/
+www/
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+android/capacitor-cordova-android-plugins/
+.jdk/
+keystore.properties
+*.keystore
+*.jks

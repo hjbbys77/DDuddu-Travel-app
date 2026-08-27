@@ -1,0 +1,15 @@
+{
+  "name": "dduddu-travel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "뚜래블 - 나의 여행 아카이브",
+  "scripts": {
+    "sync": "npx cap sync android",
+    "open:android": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0"
+  }
+}
