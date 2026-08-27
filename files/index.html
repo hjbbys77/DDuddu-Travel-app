@@ -3,10 +3,11 @@
 <head>
 <script>
 (function(){
-  // 로컬(file://) → ./font.ttf, Vercel(/) → /files/font.ttf
-  var fontPath = (location.protocol === 'file:' || location.pathname.startsWith('/files/'))
-    ? './font.ttf'
-    : '/files/font.ttf';
+  // 상대경로 하나로 모든 환경을 커버한다.
+  //   웹 루트 /            → /font.ttf      (vercel rewrite가 /files/로 넘김)
+  //   웹 /files/index.html → /files/font.ttf
+  //   앱(Capacitor)        → /font.ttf      (www 루트에 폰트가 있음)
+  var fontPath = './font.ttf';
   var s = document.createElement('style');
   s.textContent = "@font-face{font-family:'Uiyeon';src:url('" + fontPath + "') format('truetype');}";
   document.head.insertBefore(s, document.head.firstChild);
@@ -3327,9 +3328,9 @@ function renderTrips(){
           ${!dc?`<span class="trip-tag" style="cursor:pointer;background:var(--pkp);color:var(--pkdr);" onclick="event.stopPropagation();openTripEdit(${i})">＋ 일정 추가</span>`:''}
           ${dc?`<span class="trip-tag" style="cursor:pointer;background:var(--pkp);color:var(--pkdr);" onclick="event.stopPropagation();openTripEdit(${i})">✏️ 일정 수정</span>`:''}
         </div>
-        ${(t.photos&&t.photos.length)?`<div class="trip-photos">${t.photos.map((src,pi)=>`<img class="trip-photo" src="${src}" onclick="event.stopPropagation();openPhotoFull('${src}')" />`).join('')}${(t.photos||[]).length>=5
-        ? `<div class="photo-add-btn" style="opacity:.55;" onclick="event.stopPropagation();showPhotoFullMsg()"><span>🐾</span><span class="photo-add-label">5/5</span></div>`
-        : `<div class="photo-add-btn" onclick="event.stopPropagation();triggerPhotoUpload(${i})"><span>＋</span><span class="photo-add-label">사진 ${(t.photos||[]).length}/5</span></div>`}</div>`:`<div style="padding:4px 0 2px;"><div class="photo-add-btn" style="width:100%;height:36px;flex-direction:row;gap:6px;border-radius:6px;" onclick="event.stopPropagation();triggerPhotoUpload(${i})"><span style="font-size:16px;">📷</span><span class="photo-add-label" style="font-size:11px;">사진 추가</span></div></div>`}
+        ${(t.photos&&t.photos.length)?`<div class="trip-photos">${t.photos.map((src,pi)=>`<img class="trip-photo" src="${src}" onclick="event.stopPropagation();openPhotoFull('${src}')" />`).join('')}${(t.photos||[]).length>=MAX_PHOTOS
+        ? `<div class="photo-add-btn" style="opacity:.55;" onclick="event.stopPropagation();showPhotoFullMsg()"><span>🐾</span><span class="photo-add-label">${MAX_PHOTOS}/${MAX_PHOTOS}</span></div>`
+        : `<div class="photo-add-btn" onclick="event.stopPropagation();triggerPhotoUpload(${i})"><span>＋</span><span class="photo-add-label">사진 ${(t.photos||[]).length}/${MAX_PHOTOS}</span></div>`}</div>`:`<div style="padding:4px 0 2px;"><div class="photo-add-btn" style="width:100%;height:36px;flex-direction:row;gap:6px;border-radius:6px;" onclick="event.stopPropagation();triggerPhotoUpload(${i})"><span style="font-size:16px;">📷</span><span class="photo-add-label" style="font-size:11px;">사진 추가</span></div></div>`}
       </div>
     </div>`;
   }).join('');
@@ -3474,9 +3475,9 @@ function openTripDetail(idx){
   const body=document.getElementById('modalBody');
   // Photo section
   const photos=t.photos||[];
-  const photoHtml=`<div style="margin-bottom:10px;"><div style="font-size:12px;color:var(--txl);margin-bottom:4px;">📷 사진</div><div class="modal-photo-scroll">${photos.map((src,pi)=>`<div class="modal-photo-thumb"><img src="${src}" onclick="openPhotoFull('${src}')"/><button class="modal-photo-del" onclick="deleteTripPhoto(${idx},${pi})">✕</button></div>`).join('')}${(t.photos||[]).length>=5
-          ? `<div class="photo-add-btn" style="width:72px;height:72px;opacity:.55;" onclick="showPhotoFullMsg()"><span>🐾</span><span class="photo-add-label">5/5</span></div>`
-          : `<div class="photo-add-btn" style="width:72px;height:72px;" onclick="triggerPhotoUpload(${idx})"><span>＋</span><span class="photo-add-label">사진 ${(t.photos||[]).length}/5</span></div>`}</div></div>`;
+  const photoHtml=`<div style="margin-bottom:10px;"><div style="font-size:12px;color:var(--txl);margin-bottom:4px;">📷 사진</div><div class="modal-photo-scroll">${photos.map((src,pi)=>`<div class="modal-photo-thumb"><img src="${src}" onclick="openPhotoFull('${src}')"/><button class="modal-photo-del" onclick="deleteTripPhoto(${idx},${pi})">✕</button></div>`).join('')}${(t.photos||[]).length>=MAX_PHOTOS
+          ? `<div class="photo-add-btn" style="width:72px;height:72px;opacity:.55;" onclick="showPhotoFullMsg()"><span>🐾</span><span class="photo-add-label">${MAX_PHOTOS}/${MAX_PHOTOS}</span></div>`
+          : `<div class="photo-add-btn" style="width:72px;height:72px;" onclick="triggerPhotoUpload(${idx})"><span>＋</span><span class="photo-add-label">사진 ${(t.photos||[]).length}/${MAX_PHOTOS}</span></div>`}</div></div>`;
   const days=t.days||{};
   if(!Object.keys(days).length){
     body.innerHTML=photoHtml+`<div style="text-align:center;padding:24px;color:var(--txl);font-size:13px;">저장된 일정이 없어요<br><button class="parse-btn" style="margin-top:10px;" onclick="closeModal();setTimeout(()=>openTripEdit(${idx}),100)">+ 일정 추가하기</button></div>`;
