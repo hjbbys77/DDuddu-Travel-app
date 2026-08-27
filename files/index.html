@@ -1996,6 +1996,16 @@ async function checkOnboarding(){
   document.getElementById('onboarding').style.display='flex';
 }
 function applyUserProfile(){
+  // 국내 여행이 있으면 세계지도의 한국도 칠한다 (기존 계정 보정)
+  if((S.visitedCodes||[]).length){
+    S.visitedISO=S.visitedISO||[];
+    if(!S.visitedISO.includes('KR')){
+      S.visitedISO.push('KR');
+      S.visitCounts=S.visitCounts||{};
+      if(!S.visitCounts['KR']) S.visitCounts['KR']=S.visitedCodes.length;
+      save();
+    }
+  }
   // 로그인 시 레벨 재계산 (저장된 레벨이 여행 수와 안맞을 수 있음)
   recalcLevelFromTrips();
   // 저장해둔 정렬 방식을 버튼에 반영
