@@ -25,3 +25,8 @@ android/capacitor-cordova-android-plugins/
 keystore.properties
 *.keystore
 *.jks
+
+ios/App/Pods/
+ios/App/build/
+ios/App/App/public/
+ios/DerivedData/
