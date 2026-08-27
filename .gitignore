@@ -30,3 +30,8 @@ ios/App/Pods/
 ios/App/build/
 ios/App/App/public/
 ios/DerivedData/
+
+# 개인 자료 — 공개 저장소에 올리지 않는다
+Kakaotalk_Chat_*/
+bulk-photos/
+backups/

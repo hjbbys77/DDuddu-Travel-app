@@ -3621,6 +3621,17 @@ async function handleExifPhotos(event){
     const res=await extractExifFromFile(files[i]);
     results.push(res);
   }
+
+  // 촬영 날짜가 여러 여행에 걸쳐 있으면 나눠서 저장한다
+  const days=buildPhotoDays(results);
+  const marks=planPhotoGroups(days);
+  const needsSplit = marks.some(m=>m.kind!=='same');
+  if(days.length>1 && needsSplit){
+    document.getElementById('exifModalBody').innerHTML=
+      '<div style="text-align:center;padding:40px;color:var(--txl);">🗺️ 여행 단위로 나누는 중...</div>';
+    await startGroupAsk(days, marks, results, files);
+    return;
+  }
   await renderExifResults(results, files);
 }
 
@@ -3913,6 +3924,230 @@ function saveExifTrip(){
   refreshMapColors();
   nav('trips',document.querySelector('.bnav-btn:nth-child(3)'));
   showPopup('📷','사진으로 여행 저장!',`"${title}" 발자국이 지도에 남았어요 🐾\n+${TRIP_XP}pt 획득!`);
+}
+
+// ===== 사진 여러 장 → 여행 여러 건으로 자동 분할 =====
+//
+// 규칙
+//   날짜가 하루씩 이어짐        → 같은 여행 (도시가 몇 개든 상관없다)
+//   3일 이상 비었음             → 다른 여행
+//   이틀 비었음                 → 사용자에게 묻는다
+//   하루 차이인데 300km 넘게 떨어짐 → 사용자에게 묻는다 (도쿄→부산 같은 경우)
+const GROUP_FAR_KM = 300;
+const GROUP_NEAR_KM = 50;   // 이만큼 가까우면 같은 동네로 본다
+
+function _kmBetween(la1,lo1,la2,lo2){
+  const R=6371, r=x=>x*Math.PI/180;
+  const dLa=r(la2-la1), dLo=r(lo2-lo1);
+  const h=Math.sin(dLa/2)**2 + Math.cos(r(la1))*Math.cos(r(la2))*Math.sin(dLo/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function _dayGap(a,b){
+  return Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00'))/86400000);
+}
+
+// 날짜별로 묶고, 경계마다 같은 여행인지 판정한다
+function buildPhotoDays(results){
+  const byDay={};
+  results.forEach((r,i)=>{
+    if(!r.date) return;
+    (byDay[r.date]=byDay[r.date]||[]).push(i);
+  });
+  return Object.keys(byDay).sort().map(d=>{
+    const idxs=byDay[d];
+    const withGps=idxs.filter(i=>results[i].lat!=null);
+    let lat=null, lon=null;
+    if(withGps.length){
+      lat=withGps.reduce((s,i)=>s+results[i].lat,0)/withGps.length;
+      lon=withGps.reduce((s,i)=>s+results[i].lon,0)/withGps.length;
+    }
+    return {date:d, idxs, lat, lon};
+  });
+}
+
+// 경계 판정 → {groups:[[dayIdx..]], asks:[{at, km, gap}]}
+function planPhotoGroups(days){
+  const marks=[];   // days[i-1] 과 days[i] 사이: 'same' | 'diff' | 'ask'
+  for(let i=1;i<days.length;i++){
+    const gap=_dayGap(days[i-1].date, days[i].date);
+    const a=days[i-1], b=days[i];
+    const km=(a.lat!=null&&b.lat!=null) ? _kmBetween(a.lat,a.lon,b.lat,b.lon) : null;
+    if(gap<=1 && km!=null && km>GROUP_FAR_KM) marks.push({i, kind:'ask', gap, km});
+    else if(gap<=1)                           marks.push({i, kind:'same', gap, km});
+    // 이틀 비었어도 같은 동네에서 찍었으면 사진을 안 찍은 날이 있었을 뿐이다
+    else if(gap===2 && km!=null && km<GROUP_NEAR_KM) marks.push({i, kind:'same', gap, km});
+    else if(gap===2)                          marks.push({i, kind:'ask', gap, km});
+    else                                      marks.push({i, kind:'diff', gap, km});
+  }
+  return marks;
+}
+
+function marksToGroups(days, marks){
+  const groups=[[0]];
+  for(let i=1;i<days.length;i++){
+    const m=marks[i-1];
+    if(m && m.kind==='same') groups[groups.length-1].push(i);
+    else groups.push([i]);
+  }
+  return groups;
+}
+
+// ===== 사용자에게 묻기 =====
+let _askQueue=null, _askState=null;
+
+async function startGroupAsk(days, marks, results, files){
+  _askState={days, marks, results, files,
+             pending:marks.map((m,k)=>({m,k})).filter(x=>x.m.kind==='ask'), at:0};
+  // 물어볼 날짜들만 지명을 알아둔다 (Nominatim 초당 1회 제한)
+  const need=new Set();
+  _askState.pending.forEach(({m})=>{ need.add(m.i-1); need.add(m.i); });
+  for(const di of [...need]){
+    const d=days[di];
+    if(d.lat==null){ d.place=''; continue; }
+    await new Promise(r=>setTimeout(r,1100));
+    const geo=await reverseGeocode(d.lat,d.lon);
+    const kr=geo?matchKoreanRegionFromNominatim(geo):null;
+    if(kr) d.place=kr.name;
+    else{
+      const wd=geo?matchWorldCountryFromNominatim(geo):null;
+      d.place=wd?wd.name:((geo&&geo.address&&(geo.address.city||geo.address.country))||'');
+    }
+  }
+  askNextBoundary();
+}
+
+function askNextBoundary(){
+  const st=_askState;
+  if(!st || st.at>=st.pending.length){ finishGrouping(); return; }
+  const {m}=st.pending[st.at];
+  const a=st.days[m.i-1], b=st.days[m.i];
+  const fmt=d=>d.slice(5).replace('-','/');
+  const why = m.gap===2 ? '하루 건너뜀'
+            : (m.km!=null ? Math.round(m.km)+'km 떨어짐' : '');
+  document.getElementById('exifModalBody').innerHTML=`
+    <div style="text-align:center;padding:6px 0 14px;">
+      <div style="font-size:17px;color:var(--pkdr);margin-bottom:4px;">이 두 날, 같은 여행인가요?</div>
+      <div style="font-size:12px;color:var(--txl);">${why}</div>
+    </div>
+    <div style="background:var(--pkl);border:2px solid var(--pkk);border-radius:12px;padding:12px 14px;margin-bottom:16px;">
+      ${[a,b].map(d=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;">
+          <span style="font-size:15px;color:var(--pkdr);">${fmt(d.date)}${d.place?' · '+d.place:''}</span>
+          <span style="font-size:13px;color:var(--txl);">사진 ${d.idxs.length}장</span>
+        </div>`).join('<div style="height:1px;background:var(--pkk);opacity:.4;"></div>')}
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button onclick="answerBoundary('diff')" style="flex:1;background:#f0f0f0;color:#555;border:none;border-radius:10px;padding:14px;font-size:15px;cursor:pointer;font-family:'Uiyeon',sans-serif;">다른 여행</button>
+      <button onclick="answerBoundary('same')" style="flex:1;background:var(--pkd);color:#fff;border:none;border-radius:10px;padding:14px;font-size:15px;cursor:pointer;font-family:'Uiyeon',sans-serif;">같은 여행</button>
+    </div>
+    <div style="text-align:right;font-size:12px;color:var(--txl);margin-top:10px;">${st.at+1} / ${st.pending.length}</div>`;
+}
+
+function answerBoundary(kind){
+  const st=_askState;
+  st.pending[st.at].m.kind = kind;
+  st.at++;
+  askNextBoundary();
+}
+
+// ===== 그룹 확정 → 여행으로 저장 =====
+async function finishGrouping(){
+  const st=_askState;
+  const {days, marks, results, files}=st;
+  const groups=marksToGroups(days, marks);
+  const body=document.getElementById('exifModalBody');
+  body.innerHTML='<div style="text-align:center;padding:40px;color:var(--txl);">🐾 여행 '+groups.length+'건으로 정리하는 중...</div>';
+
+  const made=[];
+  for(const g of groups){
+    const dayList=g.map(i=>days[i]);
+    const start=dayList[0].date, end=dayList[dayList.length-1].date;
+
+    // 대표 좌표 하나만 지오코딩한다 (Nominatim 초당 1회 제한)
+    let locs=[];
+    const withGps=dayList.filter(d=>d.lat!=null);
+    if(withGps.length){
+      await new Promise(r=>setTimeout(r,1100));
+      const geo=await reverseGeocode(withGps[0].lat, withGps[0].lon);
+      const kr=geo?matchKoreanRegionFromNominatim(geo):null;
+      if(kr) locs=[kr];
+      else{ const wd=geo?matchWorldCountryFromNominatim(geo):null; if(wd) locs=[wd]; }
+    }
+
+    // 날짜가 겹치는 기존 여행이 있으면 새로 만들지 않고 거기에 붙인다
+    let trip=(S.trips||[]).find(t=>t.start && start<=(t.end||t.start) && end>=t.start);
+    const isNew=!trip;
+    if(isNew){
+      trip={ id:Date.now()+made.length, title:(locs[0]?(locs[0].name||locs[0].label)+' 여행':'새 여행'),
+             start, end, days:{}, photos:[], loc:locs[0]||null, locs:locs.slice(), _fromExif:true };
+      S.trips.unshift(trip);
+    }else{
+      if(start<trip.start) trip.start=start;
+      if(end>(trip.end||trip.start)) trip.end=end;
+      trip.locs=trip.locs||(trip.loc?[trip.loc]:[]);
+      const key=l=>l?(l.type==='wd'?'W'+l.iso:'K'+l.code):'';
+      const have=new Set(trip.locs.map(key));
+      locs.forEach(l=>{ if(!have.has(key(l))){ trip.locs.push(l); have.add(key(l)); } });
+      if(!trip.loc) trip.loc=trip.locs[0]||null;
+    }
+
+    // 사진: 남은 자리만큼만, 여러 날에 걸쳐 고르게 고른다
+    const room=Math.max(0, MAX_PHOTOS-(trip.photos||[]).length);
+    let idxs=dayList.flatMap(d=>d.idxs);
+    if(idxs.length>room){
+      const step=idxs.length/room, out=[];
+      for(let k=0;k<room;k++) out.push(idxs[Math.floor(k*step)]);
+      idxs=out;
+    }
+    const urls=(await Promise.all(idxs.map(i=>compressPhoto(files[i])))).filter(Boolean);
+    trip.photos=(trip.photos||[]).concat(urls).slice(0, MAX_PHOTOS);
+
+    // 지도 색칠
+    S.visitCounts=S.visitCounts||{};
+    locs.forEach(loc=>{
+      if(!loc) return;
+      if(loc.type==='kr'){
+        S.visitCounts[loc.code]=(S.visitCounts[loc.code]||0)+1;
+        if(!S.visitedCodes.includes(loc.code)) S.visitedCodes.push(loc.code);
+        updateKrRegionColor(loc.code, loc.isMetro||false);
+      }else if(loc.type==='wd'){
+        S.visitCounts[loc.iso]=(S.visitCounts[loc.iso]||0)+1;
+        if(!S.visitedISO.includes(loc.iso)) S.visitedISO.push(loc.iso);
+        const el=document.getElementById('wc-'+loc.iso);
+        if(el) el.style.fill=getVisitColorWd(S.visitCounts[loc.iso]);
+      }
+    });
+    if(isNew) addXP(TRIP_XP,'여행 기록(사진)',TRIP_CHARGES);
+    await syncPhotos(trip);
+    made.push({trip, isNew, photos:urls.length});
+  }
+
+  save(); renderStats(); checkMissions(); refreshMapColors();
+  _askState=null;
+  showGroupSummary(made, results.filter(r=>!r.date).length);
+}
+
+function showGroupSummary(made, noDateCount){
+  const nNew=made.filter(m=>m.isNew).length, nAdd=made.length-nNew;
+  const fmt=d=>d?d.slice(2).replace(/-/g,'.'):'';
+  document.getElementById('exifModalBody').innerHTML=`
+    <div style="text-align:center;padding:4px 0 14px;">
+      <div style="font-size:17px;color:var(--pkdr);">여행 ${made.length}건으로 정리했어요 🐾</div>
+      <div style="font-size:12px;color:var(--txl);margin-top:4px;">
+        새로 만든 것 ${nNew}건${nAdd?' · 기존 기록에 추가 '+nAdd+'건':''}</div>
+    </div>
+    <div style="max-height:280px;overflow-y:auto;margin-bottom:14px;">
+      ${made.map(m=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;background:var(--pkl);border:1.5px solid var(--pkk);border-radius:10px;padding:9px 12px;margin-bottom:6px;">
+          <div>
+            <div style="font-size:14px;color:var(--pkdr);">${m.trip.title}</div>
+            <div style="font-size:11px;color:var(--txl);">${fmt(m.trip.start)}${m.trip.end&&m.trip.end!==m.trip.start?' ~ '+fmt(m.trip.end):''}</div>
+          </div>
+          <div style="font-size:12px;color:var(--txl);">사진 ${m.photos}장${m.isNew?'':' 추가'}</div>
+        </div>`).join('')}
+    </div>
+    ${noDateCount?`<div style="font-size:12px;color:#e08060;background:#fff8f0;padding:8px 10px;border-radius:8px;border:1px solid #f0c090;margin-bottom:12px;">촬영 날짜를 못 읽은 사진 ${noDateCount}장은 넣지 못했어요. 여행을 열어 직접 추가해주세요.</div>`:''}
+    <button onclick="closeExifModal();nav('trips',document.querySelector('.bnav-btn:nth-child(3)'))" style="width:100%;background:var(--pkd);color:#fff;border:none;border-radius:10px;padding:14px;font-size:15px;cursor:pointer;font-family:'Uiyeon',sans-serif;">여행 목록 보기</button>`;
 }
 
 // ===== FRIEND / SHARING SYSTEM =====
